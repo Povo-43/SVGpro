@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -401,13 +402,29 @@ private fun TopBar(
     onPanel: (String) -> Unit,
     activePanel: String?,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column {
         Row(
             Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // ブランドバッジ（IllustratorのAiバッジ相当）
+            Box(
+                Modifier
+                    .padding(start = 4.dp, end = 2.dp)
+                    .size(26.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "S",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
             Box {
-                IconButton(onClick = onMenuOpen) { Icon(AppIcons.MenuIcon, "メニュー") }
+                IconButton(onClick = onMenuOpen) { Icon(AppIcons.MenuIcon, "メニュー", tint = MaterialTheme.colorScheme.onSurface) }
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = onMenuDismiss,
@@ -472,6 +489,9 @@ private fun TopBar(
             BarDivider()
             BarIconButton(AppIcons.Save, "保存", onClick = onSave)
         }
+        // 上部バーとキャンバスの間のヘアライン
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        }
     }
 }
 
@@ -483,16 +503,16 @@ private fun BarIconButton(
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val bg by animateColorAsState(
+        if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+        else androidx.compose.ui.graphics.Color.Transparent,
+        label = "barBg",
+    )
     Box(
         Modifier
             .size(38.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                when {
-                    active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                    else -> androidx.compose.ui.graphics.Color.Transparent
-                },
-            )
+            .clip(RoundedCornerShape(7.dp))
+            .background(bg)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -558,7 +578,6 @@ private fun toolLabel(t: ToolType): String = when (t) {
     ToolType.GRADIENT -> "グラデーション"
     ToolType.EYEDROPPER -> "スポイト"
     ToolType.HAND -> "手のひら"
-    ToolType.GRADIENT -> "グラデーション"
 }
 
 /** ツールレール（縦: レール / 横: compact用バー） */
@@ -570,7 +589,7 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
         editor.tool = t
     }
 
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         if (vertical) {
             Column(
                 Modifier.width(48.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 6.dp),
@@ -628,11 +647,15 @@ private fun RailSeparator(vertical: Boolean) {
 @Composable
 private fun ToolButton(editor: Editor, tool: ToolType, icon: ImageVector, onClick: () -> Unit) {
     val selected = editor.tool == tool
+    val bg by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+        label = "toolBg",
+    )
     Box(
         Modifier
             .size(40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
+            .clip(RoundedCornerShape(7.dp))
+            .background(bg)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -647,11 +670,16 @@ private fun ToolButton(editor: Editor, tool: ToolType, icon: ImageVector, onClic
 
 @Composable
 private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, onToggle: () -> Unit) {
+    val bg by animateColorAsState(
+        if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
+        else androidx.compose.ui.graphics.Color.Transparent,
+        label = "toggleBg",
+    )
     Box(
         Modifier
             .size(40.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent)
+            .clip(RoundedCornerShape(7.dp))
+            .background(bg)
             .clickable(onClick = onToggle),
         contentAlignment = Alignment.Center,
     ) {
@@ -765,7 +793,9 @@ private fun SheetPanel(
 
 @Composable
 private fun StatusBar(editor: Editor) {
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -834,6 +864,7 @@ private fun StatusBar(editor: Editor) {
                 }
                 MiniZoomButton(AppIcons.Fit, "全体表示") { editor.fitToPage() }
             }
+        }
         }
     }
 }

@@ -557,6 +557,12 @@ fun DocumentSettingsDialog(
                         Text("ガイドにスナップ", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                // スタイラス
+                var pressureOn by remember { mutableStateOf(editor.usePressure) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(pressureOn, onCheckedChange = { pressureOn = it; editor.usePressure = it })
+                    Text("筆圧を利用（スタイラス・フリーハンド）", style = MaterialTheme.typography.bodySmall)
+                }
                 // ガイド一覧（ロック・表示・削除）
                 Text("ガイド (${editor.guides.size})", style = MaterialTheme.typography.labelMedium)
                 if (editor.guides.isEmpty()) {

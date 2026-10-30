@@ -33,7 +33,7 @@ fun LayersPanel(editor: Editor, refresh: Int) {
                 val n = editor.doc.root.childElements().count { it.tag == "g" } + 1
                 editor.createLayer("Layer $n")
             }) {
-                Icon(AppIcons.Plus, contentDescription = "レイヤー追加")
+                Icon(AppIcons.Plus, contentDescription = "レイヤー追加", tint = MaterialTheme.colorScheme.onSurface)
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
@@ -79,7 +79,7 @@ fun LayersPanel(editor: Editor, refresh: Int) {
 @Composable
 fun PanelIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
     IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
-        Icon(icon, contentDescription = desc, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = desc, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
     }
 }
 
