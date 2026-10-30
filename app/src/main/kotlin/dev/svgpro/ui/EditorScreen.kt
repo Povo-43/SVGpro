@@ -77,16 +77,37 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         if (vm.hasBackup) showRestoreConfirm = true
     }
 
-    // エディタ変更通知 → 再描画
+    val canvasView = remember { CanvasView(context) }
+    LaunchedEffect(Unit) { canvasView.setup(editor) }
+    LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
+
+    // エディタ変更通知 → UI再構成 + キャンバス再描画。
+    // EditorはComposeのstateではないため、refreshカウンタがUI全体の再構成の契機になる。
+    // 各コールバックで即座にinvalidateするため、ツール操作・ズーム・Undo等が
+    // 再構成を待たずキャンバスへ反映される。
     LaunchedEffect(Unit) {
-        editor.onChanged = { refresh++ }
-        editor.onSelectionChanged = { refresh++ }
-        editor.onZoomChanged = { refresh++ }
+        editor.onChanged = {
+            refresh++
+            canvasView.invalidate()
+        }
+        editor.onSelectionChanged = {
+            refresh++
+            canvasView.invalidate()
+        }
+        editor.onZoomChanged = {
+            refresh++
+            canvasView.invalidate()
+        }
         editor.requestTextInput = { pos ->
             pendingTextPos = pos
             showTextCreate = true
         }
     }
+
+    // refreshの変化で本文が再構成され、キャンバスも再描画される。
+    // このキー評価がrefreshの購読になるため、パネル未表示（compactレイアウト）でも
+    // 上部バー・下部ツールバー・ステータスバーの状態がすべて更新される。
+    LaunchedEffect(refresh) { canvasView.invalidate() }
 
     // ファイルI/O
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -131,10 +152,6 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         }
         onDispose { MainActivity.keyHandler = null }
     }
-
-    val canvasView = remember { CanvasView(context) }
-    LaunchedEffect(Unit) { canvasView.setup(editor) }
-    LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val isExpanded = maxWidth >= 840.dp
@@ -604,10 +621,10 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
                     editor.showGrid = !editor.showGrid; editor.onChanged()
                 }
                 RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid) {
-                    editor.snapToGrid = !editor.snapToGrid
+                    editor.snapToGrid = !editor.snapToGrid; editor.onChanged()
                 }
                 RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly) {
-                    editor.penOnly = !editor.penOnly
+                    editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
             }
         } else {
@@ -624,10 +641,10 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
                     editor.showGrid = !editor.showGrid; editor.onChanged()
                 }
                 RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid) {
-                    editor.snapToGrid = !editor.snapToGrid
+                    editor.snapToGrid = !editor.snapToGrid; editor.onChanged()
                 }
                 RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly) {
-                    editor.penOnly = !editor.penOnly
+                    editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
             }
         }

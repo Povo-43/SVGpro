@@ -103,11 +103,11 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
             CompactButton("色…", filled = true) { colorDialogTarget = "fill" }
             CompactButton("線形") {
                 val id = ensureGradient(editor, radial = false)
-                if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else editor.curFill = Paint.Server(id)
+                if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
             }
             CompactButton("円形") {
                 val id = ensureGradient(editor, radial = true)
-                if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else editor.curFill = Paint.Server(id)
+                if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
             }
         }
 
