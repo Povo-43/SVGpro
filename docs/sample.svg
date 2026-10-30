@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="480" height="320" viewBox="0 0 480 320" version="1.1">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2e5f8a"/>
+      <stop offset="1" stop-color="#a7d3f0"/>
+    </linearGradient>
+    <radialGradient id="sunGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff3b0"/>
+      <stop offset="1" stop-color="#ffb703" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="0" y="0" width="480" height="320" fill="url(#sky)"/>
+  <ellipse cx="380" cy="70" rx="80" ry="60" fill="url(#sunGlow)"/>
+  <circle cx="380" cy="70" r="28" fill="#ffd166"/>
+  <!-- unknown elements は保持される -->
+  <metadata>SVGpro sample document</metadata>
+  <path d="M0 240 C80 200 120 260 200 240 C280 220 320 280 480 250 L480 320 L0 320 Z" fill="#2a9d8f" fill-opacity="0.85"/>
+  <path d="M60 240 L100 160 L140 240 Z" fill="#e76f51" stroke="#264653" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="180" y="170" width="90" height="70" rx="10" ry="10" fill="#f4a261" stroke="#264653" stroke-width="2" stroke-dasharray="6 4"/>
+  <g id="deco" transform="translate(300,190)">
+    <polygon points="0,-24 7,-7 24,-7 10,4 15,22 0,12 -15,22 -10,4 -24,-7 -7,-7" fill="#ffd166" stroke="#264653"/>
+    <circle cx="60" cy="-6" r="18" fill="#e9c46a" stroke="#264653" stroke-width="2"/>
+  </g>
+  <polyline points="40,90 90,60 140,95 190,55" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+  <text x="40" y="140" font-family="sans-serif" font-size="24" font-weight="bold" fill="#123c5b">SVGpro サンプル</text>
+  <text x="40" y="165" font-family="serif" font-size="13" fill="#123c5b">ノード・ハンドルを編集してパスを精密に調整できます</text>
+</svg>

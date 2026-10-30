@@ -1,0 +1,14 @@
+# Gradle
+.gradle/
+build/
+app/build/
+core/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+.DS_Store
+
+# Kotlin/Native etc
+.kotlin/
