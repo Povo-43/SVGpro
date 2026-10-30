@@ -20,6 +20,7 @@ import android.view.View
 import dev.svgpro.core.geom.Vec
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.ToolType
+import dev.svgpro.editor.gradientHandlePoints
 import kotlin.math.abs
 
 /**
@@ -47,7 +48,12 @@ class CanvasView @JvmOverloads constructor(
 
     private var stylusActive = false
     private var stylusDrawing = false
+    private var stylusHoverSeen = false // ペンが検知範囲にいる間 true（パームリジェクション用）
     private var hoverPos: Vec? = null
+
+    // ペン側ボタンでのパン（Illustratorのスペースドラッグ相当）
+    private var penButtonPan = false
+    private var panLast = Vec.ZERO
 
     // ダブルタップ検出
     private var lastTapTime = 0L
@@ -56,82 +62,108 @@ class CanvasView @JvmOverloads constructor(
     // ペン用の状態追跡
     private var penPointerId = -1
 
-    // ―――― 描画ペイント ――――
+    // ―――― 描画ペイント（テーマ連動: onDraw時に CanvasTheme から更新） ――――
     private val checkerPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pageBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
-        color = 0xFF3A4750.toInt()
     }
     private val gridPaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
-        color = 0x33808080
     }
     private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f
-        color = 0xFF42A5F5.toInt()
     }
     private val selectionFillPaint = Paint().apply {
         style = Paint.Style.FILL
-        color = 0x2242A5F5
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFFFFFFFF.toInt()
     }
     private val handleStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f
-        color = 0xFF42A5F5.toInt()
     }
     private val nodePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFFE8EAF0.toInt()
     }
     private val nodeSelectedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFF42A5F5.toInt()
     }
     private val nodeSmoothPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFF66BB6A.toInt()
     }
     private val handleLinePaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.2f
-        color = 0x9942A5F5.toInt()
     }
     private val draftPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 2f
-        color = 0xFFFFB74D.toInt()
         pathEffect = CornerPathEffect(2f)
     }
     private val marqueePaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
-        color = 0xFF42A5F5.toInt()
         pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f), 0f)
     }
     private val hoverPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.2f
-        color = 0xAAAAEEEE.toInt()
     }
     private val whitePaint = Paint().apply { color = Color.WHITE }
 
+    /** 適用済みテーマ（変化時のみペイントを更新） */
+    private var appliedDark: Boolean? = null
+    private var checkerTintAlpha = 60
+
+    private fun applyTheme(dark: Boolean) {
+        val c = if (dark) CanvasTheme.Dark else CanvasTheme.Light
+        pageBorderPaint.color = c.pageBorder
+        gridPaint.color = c.grid
+        selectionBoxPaint.color = c.selection
+        selectionFillPaint.color = c.selectionFill
+        handlePaint.color = c.handle
+        handleStrokePaint.color = c.handleStroke
+        nodePaint.color = c.node
+        nodeSelectedPaint.color = c.nodeSelected
+        nodeSmoothPaint.color = c.nodeSmooth
+        handleLinePaint.color = c.handleLine
+        draftPaint.color = c.draft
+        marqueePaint.color = c.marquee
+        hoverPaint.color = c.hover
+        guidePaint.color = c.guide
+        guideLockedPaint.color = c.guideLocked
+        smartGuidePaint.color = c.smartGuide
+        gradientLinePaint.color = c.selection
+        rulerPaint.color = c.rulerBg
+        rulerTickPaint.color = c.rulerTick
+        rulerTextPaint.color = c.rulerText
+        whitePaint.alpha = 60
+        // チェッカータイルを作り直す
+        val tile = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(tile)
+        canvas.drawColor(c.checkerA)
+        val p = Paint().apply { color = c.checkerB }
+        canvas.drawRect(0f, 0f, 8f, 8f, p)
+        canvas.drawRect(8f, 8f, 16f, 16f, p)
+        checkerPaint.shader = BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        checkerTintAlpha = 60
+        invalidate()
+    }
+
+    /** UIテーマから呼び出される（ダーク=true） */
+    fun setDarkTheme(dark: Boolean) {
+        if (appliedDark == dark) return
+        appliedDark = dark
+        applyTheme(dark)
+    }
+
     init {
         setLayerType(LAYER_TYPE_HARDWARE, null)
-        // チェッカーボード
-        val tile = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
-        val c = Canvas(tile)
-        c.drawColor(0xFFE0E0E0.toInt())
-        val p = Paint().apply { color = 0xFFBDBDBD.toInt() }
-        c.drawRect(0f, 0f, 8f, 8f, p)
-        c.drawRect(8f, 8f, 16f, 16f, p)
-        checkerPaint.shader = BitmapShader(tile, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        // テーマ反映はonDraw初回（appliedDark == null時）に行う
     }
 
     fun setup(ed: Editor) {
@@ -157,10 +189,65 @@ class CanvasView @JvmOverloads constructor(
 
     // ―――― 入力処理 ――――
 
+    /** ガイド操作状態（ルーラーからの作成・ドラッグ） */
+    private var guideDrag = -1
+    private var guideDragNew = false
+
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (!this::editor.isInitialized) return true
+        // ガイド/ルーラー操作（単一ポインタのみ）
+        if (guideDrag >= 0) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_MOVE -> {
+                    if (ev.pointerCount <= 1) {
+                        val user = editor.screenToUser(Vec(ev.x.toDouble(), ev.y.toDouble()))
+                        if (guideDrag in editor.guides.indices) {
+                            val g = editor.guides[guideDrag]
+                            editor.moveGuideSilent(guideDrag, if (g.horizontal) user.y else user.x)
+                        }
+                        invalidate()
+                        return true
+                    }
+                    guideDrag = -1
+                    guideDragNew = false
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    editor.saveGuides()
+                    guideDrag = -1
+                    guideDragNew = false
+                    invalidate()
+                    return true
+                }
+            }
+        }
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // ルーラーゾーンからのガイド作成
+                val rulerThickness = 22.0
+                if (editor.showRulers && ev.y <= rulerThickness && ev.x > rulerThickness) {
+                    val user = editor.screenToUser(Vec(ev.x.toDouble(), ev.y.toDouble()))
+                    editor.addGuide(dev.svgpro.core.model.Guide(horizontal = true, pos = user.y))
+                    guideDrag = editor.guides.size - 1
+                    guideDragNew = true
+                    invalidate()
+                    return true
+                }
+                if (editor.showRulers && ev.x <= rulerThickness && ev.y > rulerThickness) {
+                    val user = editor.screenToUser(Vec(ev.x.toDouble(), ev.y.toDouble()))
+                    editor.addGuide(dev.svgpro.core.model.Guide(horizontal = false, pos = user.x))
+                    guideDrag = editor.guides.size - 1
+                    guideDragNew = true
+                    invalidate()
+                    return true
+                }
+                // 既存ガイドのドラッグ（ロック中は対象外）
+                val gidx = editor.guideAtScreen(Vec(ev.x.toDouble(), ev.y.toDouble()))
+                if (gidx != null) {
+                    guideDrag = gidx
+                    guideDragNew = false
+                    invalidate()
+                    return true
+                }
                 activePointers = 1
                 val isStylus = ev.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                     ev.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
@@ -168,11 +255,16 @@ class CanvasView @JvmOverloads constructor(
                     stylusActive = true
                     stylusDrawing = true
                     penPointerId = ev.getPointerId(0)
-                } else if (stylusActive && editor.penOnly) {
-                    // ペン優先モード中の指は無視（パームリジェクション）
+                    // ペン側ボタン + ドラッグ = パン（ツール操作を優先しない）
+                    if ((ev.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0) {
+                        penButtonPan = true
+                        panLast = Vec(ev.x.toDouble(), ev.y.toDouble())
+                        return true
+                    }
+                } else if (editor.penOnly && (stylusActive || stylusHoverSeen)) {
+                    // ペン優先モード中、ペンが近くにある間は指を無視（パームリジェクション）
                     return true
                 }
-                if (!isStylus && editor.penOnly && stylusActive) return true
 
                 // ツール操作を開始
                 val screen = Vec(ev.x.toDouble(), ev.y.toDouble())
@@ -195,6 +287,13 @@ class CanvasView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                // ペンボタンによるパン
+                if (penButtonPan && ev.pointerCount == 1) {
+                    val p = Vec(ev.x.toDouble(), ev.y.toDouble())
+                    editor.panBy(p.x - panLast.x, p.y - panLast.y)
+                    panLast = p
+                    return true
+                }
                 if (multiTouchActive && ev.pointerCount >= 2) {
                     val d = dist(ev)
                     val mid = Vec((ev.getX(0) + ev.getX(1)) / 2.0, (ev.getY(0) + ev.getY(1)) / 2.0)
@@ -240,6 +339,7 @@ class CanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 activePointers = 0
                 multiTouchActive = false
+                penButtonPan = false
                 val cancelled = ev.actionMasked == MotionEvent.ACTION_CANCEL
                 val isStylus = ev.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                     ev.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER
@@ -286,12 +386,14 @@ class CanvasView @JvmOverloads constructor(
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
         return when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                stylusHoverSeen = true
                 val screen = Vec(event.x.toDouble(), event.y.toDouble())
                 hoverPos = screen
                 invalidate()
                 true
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
+                stylusHoverSeen = false
                 hoverPos = null
                 invalidate()
                 true
@@ -312,7 +414,9 @@ class CanvasView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         if (!this::editor.isInitialized) return
-        canvas.drawColor(0xFF12181D.toInt())
+        if (appliedDark == null) setDarkTheme(true) // 初回はダーク既定で初期化
+        val dark = appliedDark ?: true
+        canvas.drawColor(if (dark) CanvasTheme.Dark.canvasBg else CanvasTheme.Light.canvasBg)
 
         val vm = editor.viewMatrix
         val vb = editor.doc.viewBox
@@ -328,7 +432,7 @@ class CanvasView @JvmOverloads constructor(
 
         // ページ背景（市松模様）
         canvas.drawRect(pageScreen, checkerPaint)
-        canvas.drawRect(pageScreen, whitePaint.apply { alpha = 60 })
+        canvas.drawRect(pageScreen, whitePaint)
 
         // ドキュメント描画
         canvas.save()
@@ -344,6 +448,9 @@ class CanvasView @JvmOverloads constructor(
         // ページ枠
         canvas.drawRect(pageScreen, pageBorderPaint)
 
+        // ガイド線
+        drawGuides(canvas)
+
         // 選択表示
         drawSelection(canvas)
         // ノード表示
@@ -352,8 +459,133 @@ class CanvasView @JvmOverloads constructor(
         drawDrafts(canvas, am)
         // マーキー
         drawMarquee(canvas)
+        // スマートガイド（移動中の整列補助線）
+        drawSmartGuides(canvas)
+        // グラデーションハンドル
+        if (editor.tool == ToolType.GRADIENT) {
+            drawGradientHandles(canvas)
+        }
         // hover
         hoverPos?.let { drawHoverCursor(canvas, it) }
+        // ルーラー
+        if (editor.showRulers) {
+            drawRulers(canvas)
+        }
+    }
+
+    private val guidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+        color = 0xFF00E5FF.toInt()
+    }
+    private val guideLockedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+        color = 0x6600E5FF.toInt()
+    }
+    private val smartGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+        color = 0xFFFF4D6D.toInt()
+    }
+    private val gradientLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f
+        color = 0xFF42A5F5.toInt()
+    }
+    private val rulerPaint = Paint().apply { color = 0xEE232A30.toInt() }
+    private val rulerTickPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+        color = 0xFF8A939B.toInt()
+    }
+    private val rulerTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFB8C0C8.toInt()
+        textSize = 16f
+    }
+
+    private fun drawGuides(canvas: Canvas) {
+        for (g in editor.guides) {
+            if (!g.visible) continue
+            val paint = if (g.locked) guideLockedPaint else guidePaint
+            if (g.horizontal) {
+                val sy = editor.userToScreen(Vec(0.0, g.pos)).y
+                canvas.drawLine(0f, sy.toFloat(), width.toFloat(), sy.toFloat(), paint)
+            } else {
+                val sx = editor.userToScreen(Vec(g.pos, 0.0)).x
+                canvas.drawLine(sx.toFloat(), 0f, sx.toFloat(), height.toFloat(), paint)
+            }
+        }
+    }
+
+    /** スマートガイド（移動中の整列補助線） */
+    private fun drawSmartGuides(canvas: Canvas) {
+        for (x in editor.smartGuideV) {
+            val sx = editor.userToScreen(Vec(x, 0.0)).x
+            canvas.drawLine(sx.toFloat(), 0f, sx.toFloat(), height.toFloat(), smartGuidePaint)
+        }
+        for (y in editor.smartGuideH) {
+            val sy = editor.userToScreen(Vec(0.0, y)).y
+            canvas.drawLine(0f, sy.toFloat(), width.toFloat(), sy.toFloat(), smartGuidePaint)
+        }
+    }
+
+    private fun drawGradientHandles(canvas: Canvas) {
+        val handles = editor.gradientHandlePoints() ?: return
+        val s = editor.userToScreen(handles.second)
+        val e = editor.userToScreen(handles.third)
+        canvas.drawLine(s.x.toFloat(), s.y.toFloat(), e.x.toFloat(), e.y.toFloat(), gradientLinePaint)
+        for (p in listOf(s, e)) {
+            canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 6.5f, handlePaint)
+            canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 6.5f, handleStrokePaint)
+        }
+    }
+
+    /** ルーラー（上・左）。user座標の目盛りを描く */
+    private fun drawRulers(canvas: Canvas) {
+        val thickness = 22f
+        canvas.drawRect(0f, 0f, width.toFloat(), thickness, rulerPaint)
+        canvas.drawRect(0f, 0f, thickness, height.toFloat(), rulerPaint)
+        // 目盛り間隔: 画面上で70px前後になるuserステップ
+        val rawStep = 70.0 / editor.zoom.coerceAtLeast(1e-6)
+        val pow = Math.pow(10.0, Math.floor(Math.log10(rawStep)))
+        val step = when {
+            rawStep <= pow -> pow
+            rawStep <= 2 * pow -> 2 * pow
+            rawStep <= 5 * pow -> 5 * pow
+            else -> 10 * pow
+        }
+        val vb = editor.doc.viewBox
+        val startX = kotlin.math.floor((editor.screenToUser(Vec(0.0, 0.0)).x) / step) * step
+        var x = startX
+        while (x < editor.screenToUser(Vec(width.toDouble(), 0.0)).x + step) {
+            val sx = editor.userToScreen(Vec(x, 0.0)).x
+            if (sx >= thickness) {
+                canvas.drawLine(sx.toFloat(), thickness - 6f, sx.toFloat(), thickness.toFloat(), rulerTickPaint)
+                if (step * editor.zoom > 55) {
+                    canvas.drawText(dev.svgpro.core.util.Numbers.format(x, 1), sx.toFloat() + 3f, thickness - 7f, rulerTextPaint)
+                }
+            }
+            x += step
+        }
+        val startY = kotlin.math.floor((editor.screenToUser(Vec(0.0, 0.0)).y) / step) * step
+        var y = startY
+        while (y < editor.screenToUser(Vec(0.0, height.toDouble())).y + step) {
+            val sy = editor.userToScreen(Vec(0.0, y)).y
+            if (sy >= thickness) {
+                canvas.drawLine(thickness - 6f, sy.toFloat(), thickness.toFloat(), sy.toFloat(), rulerTickPaint)
+                if (step * editor.zoom > 55) {
+                    val text = dev.svgpro.core.util.Numbers.format(y, 1)
+                    canvas.save()
+                    canvas.rotate(-90f, thickness - 7f, sy.toFloat() - 3f)
+                    canvas.drawText(text, thickness - 7f, sy.toFloat() - 3f, rulerTextPaint)
+                    canvas.restore()
+                }
+            }
+            y += step
+        }
+        // 角
+        canvas.drawRect(0f, 0f, thickness, thickness, rulerPaint)
     }
 
     private fun drawGrid(canvas: Canvas, pageScreen: RectF) {
@@ -409,7 +641,9 @@ class CanvasView @JvmOverloads constructor(
 
     private fun drawNodes(canvas: Canvas) {
         val session = editor.nodeSession ?: return
-        // セグメントライン
+        // セグメントライン（draftPaintの色は一時的にアクセントへ変更し、後で戻す）
+        val draftColor = draftPaint.color
+        draftPaint.color = if (appliedDark == false) CanvasTheme.Light.selection else CanvasTheme.Dark.selection
         val lines = session.segmentPolylines(0.2 / editor.zoom.coerceAtLeast(0.01))
         val path = Path()
         for (poly in lines) {
@@ -418,7 +652,8 @@ class CanvasView @JvmOverloads constructor(
                 if (i == 0) path.moveTo(s.x.toFloat(), s.y.toFloat()) else path.lineTo(s.x.toFloat(), s.y.toFloat())
             }
         }
-        canvas.drawPath(path, draftPaint.apply { color = 0xFF42A5F5.toInt() })
+        canvas.drawPath(path, draftPaint)
+        draftPaint.color = draftColor
 
         // ハンドル
         for ((ref, isIn, p) in session.allHandles()) {
@@ -499,10 +734,12 @@ class CanvasView @JvmOverloads constructor(
     private fun drawHoverCursor(canvas: Canvas, screen: Vec) {
         val x = screen.x.toFloat()
         val y = screen.y.toFloat()
-        canvas.drawLine(x - 14, y, x - 4, y, hoverPaint)
-        canvas.drawLine(x + 4, y, x + 14, y, hoverPaint)
-        canvas.drawLine(x, y - 14, x, y - 4, hoverPaint)
-        canvas.drawLine(x, y + 4, x, y + 14, hoverPaint)
+        // 十字カーソル（Illustrator風）
+        canvas.drawLine(x - 13, y, x - 4, y, hoverPaint)
+        canvas.drawLine(x + 4, y, x + 13, y, hoverPaint)
+        canvas.drawLine(x, y - 13, x, y - 4, hoverPaint)
+        canvas.drawLine(x, y + 4, x, y + 13, hoverPaint)
+        canvas.drawCircle(x, y, 1.5f, hoverPaint)
         // ノードツール時: 近傍ノードハイライト
         if (editor.tool == ToolType.NODE) {
             val session = editor.nodeSession

@@ -2,6 +2,7 @@ package dev.svgpro.core.edit
 
 import dev.svgpro.core.path.PathData
 import dev.svgpro.core.svg.Element
+import dev.svgpro.core.svg.Node
 import dev.svgpro.core.svg.Text
 
 /** ドキュメントへの1変更（逆操作は revert()） */
@@ -85,6 +86,24 @@ class Attach(
         if (p != null && prevIndex >= 0) {
             p.children.add(prevIndex.coerceIn(0, p.children.size), el)
         }
+    }
+}
+
+/** 子要素リストの変更（要素の追加・削除・順序を丸ごと復元する） */
+class ChildListChange(
+    val parent: Element,
+    val before: List<Node>,
+    val after: List<Node>,
+    override val label: String? = null,
+) : Change {
+    override fun apply() {
+        parent.children.clear()
+        parent.children.addAll(after)
+    }
+
+    override fun revert() {
+        parent.children.clear()
+        parent.children.addAll(before)
     }
 }
 

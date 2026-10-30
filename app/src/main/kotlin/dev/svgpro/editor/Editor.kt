@@ -10,6 +10,7 @@ import dev.svgpro.core.geom.Bounds
 import dev.svgpro.core.geom.Matrix
 import dev.svgpro.core.geom.Vec
 import dev.svgpro.core.model.Color
+import dev.svgpro.core.model.Guide
 import dev.svgpro.core.model.Paint
 import dev.svgpro.core.model.Shapes
 import dev.svgpro.core.model.StyleUtil
@@ -28,13 +29,11 @@ import kotlin.math.round
 enum class ToolType {
     SELECT, NODE, PEN, FREEHAND,
     RECT, RRECT, ELLIPSE, LINE, POLYGON, STAR, POLYLINE,
-    TEXT, HAND, EYEDROPPER,
+    TEXT, HAND, EYEDROPPER, GRADIENT,
 }
 
-/** ノード参照（サブパスindex, ノードindex） */
-data class NodeRef(val sub: Int, val node: Int) : Comparable<NodeRef> {
-    override fun compareTo(other: NodeRef): Int = if (sub != other.sub) sub - other.sub else node - other.node
-}
+/** ノード参照（サブパスindex, ノードindex）— コアで定義されたものを使用 */
+typealias NodeRef = dev.svgpro.core.path.NodeRef
 
 /**
  * ノード編集セッション。選択中の1 path 要素のノードモデルを保持する。
@@ -364,18 +363,67 @@ class Editor {
     // ―――― 設定 ――――
     var gridSize = 10.0
     var showGrid = false
+    var showRulers = false
     var snapToGrid = false
     var snapToObject = true
     var penOnly = false // スタイラスのみで作図（指はパン/ズーム）
     var usePressure = true
 
+    // ―――― スナップ詳細設定 ――――
+    /** スナップ許容距離（画面px基準。拡大率でuser距離へ変換） */
+    var snapTolerancePx = 8.0
+    /** オブジェクトのノード（パス上の点）へスナップ */
+    var snapToNode = false
+    /** オブジェクトの中心へスナップ */
+    var snapToCenter = true
+    /** 移動中のスマートガイド（他オブジェクトとの整列補助線） */
+    var smartGuides = true
+    /** ガイド線へスナップ */
+    var snapToGuides = true
+
+    // ―――― ガイド ――――
+    val guides = ArrayList<Guide>()
+
+    // ―――― 整列の基準 ――――
+    enum class AlignRelative { SELECTION, CANVAS, KEY_OBJECT }
+
+    /** キーオブジェクト（整列基準。UIで明示指定する） */
+    var keyObject: Element? = null
+
+    // ―――― 変形の繰り返し ――――
+    /** 直近の数値変形（transform again用） */
+    var lastTransformOp: TransformOp? = null
+        private set
+
+    fun recordTransform(op: TransformOp) {
+        lastTransformOp = op
+    }
+
+    // ―――― 移動中の状態表示（ステータスバー用） ――――
+    /** 直近のドラッグ移動量（user単位）。距離表示に使う */
+    var lastMoveDelta: Vec = Vec.ZERO
+        private set
+
+    internal fun setLastMoveDelta(v: Vec) {
+        lastMoveDelta = v
+    }
+
+    // ―――― スマートガイド表示（CanvasView描画用） ――――
+    /** 整列補助線（user座標・縦線のx集合/横線のy集合） */
+    var smartGuideV: MutableList<Double> = ArrayList()
+    var smartGuideH: MutableList<Double> = ArrayList()
+
     // ―――― 新規作成スタイル ――――
-    var curFill: Paint = Paint.Solid(Color.withAlpha(0xFF42A5F5.toInt(), 0.85))
+    var curFill: Paint = Paint.Solid(Color.withAlpha(0xFF1473E6.toInt(), 0.85))
     var curStroke: Paint = Paint.None
     var curStrokeWidth = 2.0
     var curPolygonSides = 5
     var curStarPoints = 5
     var curTextSize = 24.0
+
+    // ―――― グラデーション編集 ――――
+    /** 現在編集中のグラデーション（GRADIENTツール使用時） */
+    var gradientEdit: GradientEditState? = null
 
     // ―――― コールバック ――――
     var onChanged: () -> Unit = {}
@@ -389,7 +437,7 @@ class Editor {
         private set
 
     fun invalidateTrace() {
-        trace = Trace.build(doc)
+        trace = Trace.build(doc, trace)
     }
 
     fun notifyChanged() {
@@ -412,6 +460,10 @@ class Editor {
         undoStack.clear()
         dirty = false
         if (name != null) documentName = name
+        guides.clear()
+        guides.addAll(Guide.Codec.decode(doc.root.attr(Guide.ATTR)))
+        keyObject = null
+        lastTransformOp = null
         invalidateTrace()
         fitToPage()
         onDocumentReplaced()
@@ -639,25 +691,42 @@ class Editor {
 
     // ―――― スナップ ――――
 
+    /**
+     * 点をスナップする。
+     * 優先度: ガイド > オブジェクト（コーナー/中心/ノード） > グリッド。
+     * 画面px基準の許容距離を拡大率でuser距離へ変換するため、ズーム非依存の操作感。
+     */
     fun snapPoint(p: Vec, ignore: List<Element> = emptyList()): Vec {
+        val tolUser = snapTolerancePx / zoom.coerceAtLeast(1e-6)
         var result = p
-        if (snapToGrid) {
-            result = Vec(round(result.x / gridSize) * gridSize, round(result.y / gridSize) * gridSize)
+
+        // ガイドスナップ（最優先・個別トグル）。ロックは「編集不可」でありスナップ対象からは除外しない
+        if (snapToGuides) {
+            var snapped = false
+            for (g in guides) {
+                if (!g.visible) continue
+                if (g.horizontal && abs(p.y - g.pos) < tolUser) {
+                    result = Vec(result.x, g.pos); snapped = true
+                } else if (!g.horizontal && abs(p.x - g.pos) < tolUser) {
+                    result = Vec(g.pos, result.y); snapped = true
+                }
+            }
+            if (snapped) return result
         }
+
         if (snapToObject) {
-            val tol = 8.0 / zoom
             var bestDelta: Vec? = null
-            var bestDist = tol
-            val selBounds = trace.boundsOf(selection.filter { it !in ignore })
+            var bestDist = tolUser
+            val ignoreSet = ignore.toHashSet()
             for (item in trace.items) {
                 if (item.locked || !item.visible) continue
-                if (selection.contains(item.el) || item.el in ignore) continue
+                if (selection.contains(item.el) || item.el in ignoreSet) continue
                 val b = trace.boundsOf(item.el) ?: continue
-                val candidates = listOf(
-                    Vec(b.x, b.y), Vec(b.centerX, b.y), Vec(b.right, b.y),
-                    Vec(b.x, b.centerY), Vec(b.right, b.centerY),
-                    Vec(b.x, b.bottom), Vec(b.centerX, b.bottom), Vec(b.right, b.bottom),
-                )
+                val candidates = ArrayList<Vec>(10)
+                candidates.add(Vec(b.x, b.y)); candidates.add(Vec(b.centerX, b.y)); candidates.add(Vec(b.right, b.y))
+                candidates.add(Vec(b.x, b.centerY)); candidates.add(Vec(b.right, b.centerY))
+                candidates.add(Vec(b.x, b.bottom)); candidates.add(Vec(b.centerX, b.bottom)); candidates.add(Vec(b.right, b.bottom))
+                if (snapToCenter) candidates.add(Vec(b.centerX, b.centerY))
                 for (c in candidates) {
                     val d = c.distanceTo(result)
                     if (d < bestDist) {
@@ -665,10 +734,83 @@ class Editor {
                         bestDelta = c - result
                     }
                 }
+                // ノードスナップ: パス要素のノード座標
+                if (snapToNode) {
+                    val geo = item.geometry
+                    if (geo != null && geo.nodeCountEstimate() <= 512) {
+                        for (sp in geo.subpaths()) {
+                            val segs = geo.segs
+                            for (i in sp.segStart..sp.segEnd) {
+                                val s = segs.getOrNull(i) ?: continue
+                                if (s is Seg.Close) continue
+                                val nodeP = geo.endPoint(i)
+                                val d = nodeP.distanceTo(result)
+                                if (d < bestDist) {
+                                    bestDist = d
+                                    bestDelta = nodeP - result
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if (bestDelta != null) result += bestDelta
+            if (bestDelta != null) return result
+        }
+
+        if (snapToGrid) {
+            result = Vec(round(result.x / gridSize) * gridSize, round(result.y / gridSize) * gridSize)
         }
         return result
+    }
+
+    /** ガイド列をドキュメント属性へ保存（可逆） */
+    fun saveGuides() {
+        val enc = Guide.Codec.encode(guides)
+        commit("guides") { batch ->
+            batch.touch(doc.root)
+            doc.root.setAttr(Guide.ATTR, enc)
+        }
+    }
+
+    fun addGuide(g: Guide) {
+        guides.add(g)
+        saveGuides()
+    }
+
+    /** ドラッグ中のガイド移動（undo記録なし。確定時にsaveGuidesを呼ぶ） */
+    fun moveGuideSilent(index: Int, pos: Double) {
+        if (index !in guides.indices) return
+        val g = guides[index]
+        guides[index] = g.copy(pos = pos)
+        onChanged()
+    }
+
+    fun updateGuide(index: Int, g: Guide) {
+        if (index !in guides.indices) return
+        guides[index] = g
+        saveGuides()
+    }
+
+    fun removeGuide(index: Int) {
+        if (index !in guides.indices) return
+        guides.removeAt(index)
+        saveGuides()
+    }
+
+    fun guideAtScreen(screen: Vec, tolerancePx: Double = 12.0): Int? {
+        var best: Int? = null
+        var bestD = tolerancePx
+        for ((i, g) in guides.withIndex()) {
+            if (!g.visible || g.locked) continue
+            val d = if (g.horizontal) abs(userToScreen(Vec(0.0, g.pos)).y - screen.y)
+            else abs(userToScreen(Vec(g.pos, 0.0)).x - screen.x)
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+        }
+        return best
     }
 
     // ―――― オブジェクト操作 ――――
@@ -698,7 +840,7 @@ class Editor {
             val copy = el.deepCopy()
             // 少しずらす
             val t = Shapes.localTransform(el)
-            copy.setAttr("transform", Matrix.toSvgString(Matrix(e = 8.0 / zoom, f = 8.0 / zoom).then(t)))
+            copy.setAttr("transform", Matrix.toSvgString(t.then(Matrix(e = 8.0 / zoom, f = 8.0 / zoom))))
             val idx = parent.children.indexOf(el) + 1
             changes.add(Attach(copy, parent, idx, doc.root, "duplicate"))
             newSel.add(copy)
@@ -852,7 +994,7 @@ class Editor {
                 val localDelta = parentInv.transformVec(deltaUser)
                 val elLocal = Shapes.localTransform(el)
                 batch.touch(el)
-                el.setAttr("transform", Matrix.toSvgString(Matrix(e = localDelta.x, f = localDelta.y).then(elLocal)))
+                el.setAttr("transform", Matrix.toSvgString(elLocal.then(Matrix(e = localDelta.x, f = localDelta.y))))
             }
         }
     }
@@ -877,7 +1019,7 @@ class Editor {
                 val localDelta = parentInv.transformVec(deltaUser)
                 val elLocal = Shapes.localTransform(el)
                 batch.touch(el)
-                el.setAttr("transform", Matrix.toSvgString(Matrix(e = localDelta.x, f = localDelta.y).then(elLocal)))
+                el.setAttr("transform", Matrix.toSvgString(elLocal.then(Matrix(e = localDelta.x, f = localDelta.y))))
             }
         }
     }
@@ -896,12 +1038,12 @@ class Editor {
                 val sx = if (horizontal) -1.0 else 1.0
                 val sy = if (horizontal) 1.0 else -1.0
                 val flip = Matrix(a = sx, b = 0.0, c = 0.0, d = sy, e = 0.0, f = 0.0)
-                val m = Matrix(e = cLocal.x, f = cLocal.y)
+                val m = Matrix(e = -cLocal.x, f = -cLocal.y)
                     .then(flip)
-                    .then(Matrix(e = -cLocal.x, f = -cLocal.y))
+                    .then(Matrix(e = cLocal.x, f = cLocal.y))
                 val elLocal = Shapes.localTransform(el)
                 batch.touch(el)
-                el.setAttr("transform", Matrix.toSvgString(m.then(elLocal)))
+                el.setAttr("transform", Matrix.toSvgString(elLocal.then(m)))
             }
         }
     }
@@ -914,8 +1056,10 @@ class Editor {
             val parentInv = trace.parentAbsOf(el).invert()
             val localDelta = parentInv.transformVec(deltaUser)
             val elLocal = Shapes.localTransform(el)
-            el.setAttr("transform", Matrix.toSvgString(Matrix(e = localDelta.x, f = localDelta.y).then(elLocal)))
+            // 親空間での平行移動 = ローカル変換の後にtranslation（thenは時間順）
+            el.setAttr("transform", Matrix.toSvgString(elLocal.then(Matrix(e = localDelta.x, f = localDelta.y))))
         }
+        setLastMoveDelta(deltaUser)
         invalidateTrace()
         onChanged()
     }
@@ -927,9 +1071,10 @@ class Editor {
             val parentInv = trace.parentAbsOf(el).invert()
             val cLocal = parentInv.apply(centerUser)
             val s = Matrix(a = scaleX, b = 0.0, c = 0.0, d = scaleY, e = 0.0, f = 0.0)
-            val m = Matrix(e = cLocal.x, f = cLocal.y).then(s).then(Matrix(e = -cLocal.x, f = -cLocal.y))
+            // then()は時間順（左から右へ適用）: -c → S → +c でcenter周りの拡縮
+            val m = Matrix(e = -cLocal.x, f = -cLocal.y).then(s).then(Matrix(e = cLocal.x, f = cLocal.y))
             val elLocal = Shapes.localTransform(el)
-            el.setAttr("transform", Matrix.toSvgString(m.then(elLocal)))
+            el.setAttr("transform", Matrix.toSvgString(elLocal.then(m)))
         }
         invalidateTrace()
         onChanged()
@@ -941,9 +1086,9 @@ class Editor {
             val parentInv = trace.parentAbsOf(el).invert()
             val cLocal = parentInv.apply(centerUser)
             val r = Matrix().rotateDeg(deg)
-            val m = Matrix(e = cLocal.x, f = cLocal.y).then(r).then(Matrix(e = -cLocal.x, f = -cLocal.y))
+            val m = Matrix(e = -cLocal.x, f = -cLocal.y).then(r).then(Matrix(e = cLocal.x, f = cLocal.y))
             val elLocal = Shapes.localTransform(el)
-            el.setAttr("transform", Matrix.toSvgString(m.then(elLocal)))
+            el.setAttr("transform", Matrix.toSvgString(elLocal.then(m)))
         }
         invalidateTrace()
         onChanged()
@@ -1036,6 +1181,8 @@ class Editor {
     // ―――― 要素生成 ――――
 
     fun findParent(el: Element): Element? {
+        // Traceキャッシュを優先（未登録なら走査）
+        trace.parentOf(el)?.let { return it }
         var found: Element? = null
         doc.root.walk { e -> if (found == null && e.children.contains(el)) found = e }
         return found
@@ -1301,7 +1448,7 @@ class Editor {
         simplifyPath(0.6 / zoom.coerceAtLeast(0.01))
     }
 
-    private fun replaceWithPathElement(old: Element, pd: PathData, label: String) {
+    internal fun replaceWithPathElement(old: Element, pd: PathData, label: String) {
         val parent = findParent(old) ?: doc.root
         val idx = parent.children.indexOf(old).coerceAtLeast(0)
         val p = Element("path")
@@ -1414,7 +1561,7 @@ class Editor {
 enum class GeometryOpKind { UNION, DIFFERENCE, INTERSECTION, XOR }
 
 /** Vecの変換ヘルパ（行列をdeltaに適用） */
-private fun Matrix.transformVec(v: Vec): Vec {
+internal fun Matrix.transformVec(v: Vec): Vec {
     // 線形成分のみ（平行移動なし）
     return Vec(a * v.x + c * v.y, b * v.x + d * v.y)
 }

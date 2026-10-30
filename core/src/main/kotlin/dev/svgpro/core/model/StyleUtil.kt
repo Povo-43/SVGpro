@@ -146,7 +146,7 @@ object Color {
     }
 
     fun withAlpha(color: Int, alpha: Double): Int {
-        val a = (alpha.coerceIn(0.0, 1.0) * 255).toInt()
+        val a = Math.round(alpha.coerceIn(0.0, 1.0) * 255).toInt()
         return (color and 0xFFFFFF) or (a shl 24)
     }
 }
@@ -262,6 +262,23 @@ object StyleUtil {
         return v.split(Regex("[,\\s]+")).filter { it.isNotEmpty() }.mapNotNull { Numbers.parse(it) }
     }
 
+    /** 塗り規則（nonzero / evenodd） */
+    fun fillRule(el: Element): String = getProperty(el, "fill-rule")?.trim()?.lowercase().takeIf { it == "evenodd" } ?: "nonzero"
+
+    /** 塗り規則を設定（nonzeroは属性削除=デフォルト） */
+    fun setFillRule(el: Element, rule: String) {
+        if (rule.equals("nonzero", true)) {
+            removeProperty(el, "fill-rule")
+            el.setAttr("fill-rule", null)
+        } else {
+            setProperty(el, "fill-rule", "evenodd")
+        }
+    }
+
+    /** 線幅拡大縮小への追従はSVGではtransformに含まれる（スケールで線幅も拡縮）。
+     *  追従させない場合は必要に応じて stroke-width を逆補正するためのヘルパ。 */
+    fun compensationForScale(el: Element, scaleX: Double, scaleY: Double): Double = kotlin.math.sqrt(kotlin.math.abs(scaleX * scaleY).coerceAtLeast(1e-12))
+
     /** Xlink:href と href の両対応 */
     fun href(el: Element): String? = el.attr("href") ?: el.attr("xlink:href")
 
@@ -270,5 +287,97 @@ object StyleUtil {
         if (getProperty(el, "display") == "none") return false
         val p = parentLookup(el) ?: return true
         return inheritedDisplay(p, parentLookup)
+    }
+}
+
+/**
+ * ドキュメント全体の色操作（一括置換・使用色の収集）。
+ * style属性・presentation属性・stop-color・gradient stops を対象とする。
+ */
+object ColorOps {
+
+    /** ドキュメント内で使用されている色（ARGB）を収集 */
+    fun collectColors(root: Element): Set<Int> {
+        val out = HashSet<Int>()
+        val props = listOf("fill", "stroke", "stop-color", "flood-color", "lighting-color")
+        root.walk { el ->
+            for (prop in props) {
+                val v = StyleUtil.getProperty(el, prop) ?: continue
+                if (v.startsWith("url", true)) continue
+                Color.parse(v)?.let { out.add(it) }
+            }
+            // style属性の生文字列にも対応
+            val raw = el.attr("style")
+            if (raw != null) {
+                for (decl in raw.split(';')) {
+                    val i = decl.indexOf(':')
+                    if (i < 0) continue
+                    val key = decl.substring(0, i).trim()
+                    if (key in props) {
+                        Color.parse(decl.substring(i + 1).trim())?.let { out.add(it) }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * 色の一括置換。対象: fill / stroke / stop-color（style属性・presentation属性両方）。
+     * @return 置換が発生した要素数
+     */
+    fun replaceColor(root: Element, from: Int, to: Int, alsoStops: Boolean = true): Int {
+        val fromHex = Color.toHex(from).lowercase()
+        val fromCss = Color.css(from).lowercase()
+        var count = 0
+        fun matches(v: String): Boolean {
+            val t = v.trim().lowercase()
+            return t == fromHex || t == fromCss || (Color.parse(t) == from && !t.startsWith("url"))
+        }
+
+        root.walk { el ->
+            var touched = false
+            for (prop in listOf("fill", "stroke")) {
+                val v = StyleUtil.getProperty(el, prop) ?: continue
+                if (matches(v)) {
+                    StyleUtil.setProperty(el, prop, Color.css(to))
+                    touched = true
+                }
+            }
+            if (alsoStops) {
+                for (stop in el.childElements()) {
+                    if (stop.tag != "stop") continue
+                    val v = StyleUtil.getProperty(stop, "stop-color") ?: continue
+                    if (matches(v)) {
+                        // 元stopの不透明度を保ったままRGBを置換
+                        val old = Color.parse(v) ?: continue
+                        val newArgb = (old and 0xFF000000.toInt()) or (to and 0x00FFFFFF)
+                        StyleUtil.setProperty(stop, "stop-color", Color.css(newArgb))
+                        touched = true
+                    }
+                }
+            }
+            if (touched) count++
+        }
+        return count
+    }
+
+    /** 指定色を使用している要素を選択対象として収集 */
+    fun elementsUsingColor(root: Element, color: Int): List<Element> {
+        val out = ArrayList<Element>()
+        fun matches(v: String): Boolean {
+            val t = v.trim().lowercase()
+            return Color.parse(t) == color && !t.startsWith("url")
+        }
+        root.walk { el ->
+            for (prop in listOf("fill", "stroke")) {
+                val v = StyleUtil.getProperty(el, prop)
+                if (v != null && matches(v)) {
+                    out.add(el)
+                    return@walk
+                }
+            }
+        }
+        return out
     }
 }

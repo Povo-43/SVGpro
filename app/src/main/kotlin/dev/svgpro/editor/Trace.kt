@@ -19,10 +19,17 @@ object TextMetrics {
 /**
  * ドキュメント走査の結果（ヒットテスト・描画・選択bbox用のキャッシュ）。
  * すべて user 単位系（viewBox空間）の絶対座標。
+ *
+ * 大規模ドキュメント対策:
+ *  - 幾何（PathData）は「幾何シグネチャ」が変わらない限り前回のTraceから再利用する
+ *    （移動・変形はtransform属性の変更なので、幾何の再解析を回避できる）
+ *  - 親要素参照をキャッシュし、findParent相当の走査を廃止
  */
 class Trace private constructor(
     val items: List<Item>,
     val elementIndex: Map<Element, Item>,
+    /** 幾何キャッシュ: el → (シグネチャ, 幾何)。再構築時の再解析を避ける */
+    val geoCache: Map<Element, Pair<String, PathData>> = emptyMap(),
 ) {
     data class Item(
         val el: Element,
@@ -30,6 +37,8 @@ class Trace private constructor(
         val abs: Matrix,
         /** 親のCTM（相対操作に使用） */
         val parentAbs: Matrix,
+        /** 親要素（ルートの子ならdoc.root） */
+        val parent: Element?,
         /** 絶対空間の幾何（ヒット/境界用）。g等はnull */
         val geometry: PathData?,
         /** 表示状態（display, visible） */
@@ -46,6 +55,9 @@ class Trace private constructor(
 
     fun parentAbsOf(el: Element): Matrix = elementIndex[el]?.parentAbs ?: Matrix.IDENTITY
     fun absOf(el: Element): Matrix = elementIndex[el]?.abs ?: Matrix.IDENTITY
+
+    /** 親要素（キャッシュ参照） */
+    fun parentOf(el: Element): Element? = elementIndex[el]?.parent
 
     /** 選択要素群の絶対bbox */
     fun boundsOf(elems: List<Element>): Bounds? {
@@ -75,6 +87,14 @@ class Trace private constructor(
                 b
             }
             "text" -> TextMetrics.provider?.invoke(el)
+            "use" -> {
+                // 参照先幾何はbuild時にgeometryへ解決される。ここはフォールバック
+                val x = dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0
+                val y = dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0
+                val w = dev.svgpro.core.util.Numbers.parse(el.attr("width")) ?: 40.0
+                val h = dev.svgpro.core.util.Numbers.parse(el.attr("height")) ?: 40.0
+                Bounds(x, y, w, h)
+            }
             "image" -> {
                 val x = dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0
                 val y = dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0
@@ -143,36 +163,81 @@ class Trace private constructor(
         /** これらの子は個別に走査しない（defs/clipPath等は参照時に解決） */
         private val SKIP_SUBTREE = setOf("defs", "clipPath", "mask", "pattern", "filter", "symbol", "marker")
 
-        /** ドキュメントを走査してTraceを構築 */
-        fun build(doc: SvgDocument): Trace {
+        /** 幾何シグネチャ: 幾何を決める属性のハッシュ（transformは含まない） */
+        private fun geometrySignature(el: Element): String = when (el.tag) {
+            "path" -> el.attr("d") ?: ""
+            "rect" -> "r${el.attr("x")},${el.attr("y")},${el.attr("width")},${el.attr("height")},${el.attr("rx")},${el.attr("ry")}"
+            "circle" -> "c${el.attr("cx")},${el.attr("cy")},${el.attr("r")}"
+            "ellipse" -> "e${el.attr("cx")},${el.attr("cy")},${el.attr("rx")},${el.attr("ry")}"
+            "line" -> "l${el.attr("x1")},${el.attr("y1")},${el.attr("x2")},${el.attr("y2")}"
+            "polyline", "polygon" -> "p${el.attr("points")}"
+            else -> ""
+        }
+
+        /**
+         * ドキュメントを走査してTraceを構築。
+         * @param previous 前回のTrace（幾何キャッシュとして再利用。null可）
+         */
+        fun build(doc: SvgDocument, previous: Trace? = null): Trace {
             val items = ArrayList<Item>()
             val index = HashMap<Element, Item>()
+            val newCache = HashMap<Element, Pair<String, PathData>>()
+            if (previous != null) {
+                newCache.putAll(previous.geoCache)
+            }
             var order = 0
 
             fun isHidden(el: Element): Boolean = StyleUtil.getProperty(el, "display") == "none"
 
             fun isLocked(el: Element): Boolean = el.attr(LOCK_ATTR) == "1"
 
-            fun walk(el: Element, parentAbs: Matrix, parentVisible: Boolean, parentLocked: Boolean, layer: Element?) {
+            fun walk(el: Element, parentAbs: Matrix, parentVisible: Boolean, parentLocked: Boolean, layer: Element?, parent: Element?) {
                 val local = Shapes.localTransform(el)
                 val abs = parentAbs.then(local)
                 val visible = parentVisible && !isHidden(el)
                 val locked = parentLocked || isLocked(el)
                 val ownLayer = if (parentAbs == Matrix.IDENTITY && el.tag == "g") el else layer
-                val geo = Shapes.geometryOf(el)
-                val item = Item(el, abs, parentAbs, geo, visible, locked, ownLayer, order++)
+                var geo: PathData? = null
+                if (el.tag in Shapes.DRAWABLE_TAGS) {
+                    val sig = geometrySignature(el)
+                    val cached = newCache[el]
+                    geo = if (cached != null && cached.first == sig) {
+                        cached.second
+                    } else {
+                        val fresh = Shapes.geometryOf(el)
+                        if (fresh != null) newCache[el] = sig to fresh
+                        fresh
+                    }
+                } else if (el.tag == "use") {
+                    // use要素: 参照先の幾何（+x/yオフセット）をヒット/境界用に解決
+                    geo = resolveUseGeometry(doc, el)
+                }
+                val item = Item(el, abs, parentAbs, parent, geo, visible, locked, ownLayer, order++)
                 items.add(item)
                 index[el] = item
                 if (el.tag in SKIP_SUBTREE) return
                 for (child in el.childElements()) {
-                    walk(child, abs, visible, locked, ownLayer)
+                    walk(child, abs, visible, locked, ownLayer, el)
                 }
             }
 
             for (child in doc.root.childElements()) {
-                walk(child, Matrix.IDENTITY, true, false, if (child.tag == "g") child else null)
+                walk(child, Matrix.IDENTITY, true, false, if (child.tag == "g") child else null, doc.root)
             }
-            return Trace(items, index)
+            return Trace(items, index, newCache)
+        }
+
+        /** use要素の参照先幾何（ローカルtransform+x/yオフセットを焼き込み） */
+        private fun resolveUseGeometry(doc: SvgDocument, el: Element): PathData? {
+            val href = StyleUtil.href(el) ?: return null
+            val target = doc.root.findById(href.removePrefix("#")) ?: return null
+            val geo = Shapes.geometryOf(target) ?: return null
+            val baked = geo.clone()
+            baked.transform(Shapes.localTransform(target))
+            val dx = dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0
+            val dy = dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0
+            if (dx != 0.0 || dy != 0.0) baked.transform(Matrix(e = dx, f = dy))
+            return baked
         }
     }
 }

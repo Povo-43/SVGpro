@@ -23,9 +23,48 @@ import dev.svgpro.core.model.Paint
 import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.svg.Element
 import dev.svgpro.editor.Editor
+import dev.svgpro.editor.Editor.AlignRelative
 import dev.svgpro.editor.GeometryOpKind
 import dev.svgpro.core.path.NodeKind
 import dev.svgpro.editor.ToolType
+import dev.svgpro.editor.alignSelectionTo
+import dev.svgpro.editor.gradientHandlePoints
+import dev.svgpro.editor.updateGradientHandles
+import dev.svgpro.editor.distributeSelectionEx
+import dev.svgpro.editor.applyGradientToSelection
+import dev.svgpro.editor.addGradientStop
+import dev.svgpro.editor.compoundSelection
+import dev.svgpro.editor.createClipFromSelection
+import dev.svgpro.editor.createMaskFromSelection
+import dev.svgpro.editor.createGradientForSelection
+import dev.svgpro.editor.createSymbolFromSelection
+import dev.svgpro.editor.breakSymbolInstance
+import dev.svgpro.editor.gradientModelOfSelection
+import dev.svgpro.editor.invertSelection
+import dev.svgpro.editor.invertNodeSelection
+import dev.svgpro.editor.selectAllNodes
+import dev.svgpro.editor.distributeSelectedNodes
+import dev.svgpro.editor.convertSelectedSegments
+import dev.svgpro.editor.deleteSelectedSegments
+import dev.svgpro.editor.joinSelectedEnds
+import dev.svgpro.editor.splitAtSelectedNodes
+import dev.svgpro.editor.reduceNodesInPath
+import dev.svgpro.editor.releaseClipSelection
+import dev.svgpro.editor.releaseCompound
+import dev.svgpro.editor.releaseMaskSelection
+import dev.svgpro.editor.removeGradientStop
+import dev.svgpro.editor.selectChildren
+import dev.svgpro.editor.selectSameFill
+import dev.svgpro.editor.selectSameKind
+import dev.svgpro.editor.selectSameStroke
+import dev.svgpro.editor.setFillRuleSelection
+import dev.svgpro.editor.setSelectionPosition
+import dev.svgpro.editor.setSelectionSize
+import dev.svgpro.editor.snapSelectionToGrid
+import dev.svgpro.editor.strokeToPathSelection
+import dev.svgpro.editor.makeTextPath
+import dev.svgpro.editor.moveGradientStop
+import dev.svgpro.editor.setGradientStopColor
 
 /**
  * プロパティパネル（塗り・線・整列・パス操作）。
@@ -35,6 +74,10 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
     var colorDialogTarget by remember { mutableStateOf<String?>(null) } // "fill" | "stroke"
     var offsetDialog by remember { mutableStateOf(false) }
     var textDialog by remember { mutableStateOf(false) }
+    var transformDialog by remember { mutableStateOf(false) }
+    var alignRelative by remember { mutableStateOf(AlignRelative.SELECTION) }
+    var handleDialog by remember { mutableStateOf(false) }
+    var stopColorTarget by remember { mutableStateOf<Int?>(null) }
 
     val sel = editor.selection
     val hasSel = sel.isNotEmpty()
@@ -49,24 +92,23 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val fill = if (hasSel) editor.selectionFill() else editor.curFill
             Swatch(fill)
-            Button(onClick = {
-                val cur = (if (hasSel) editor.selectionFill() else editor.curFill)
+            CompactButton("なし") {
                 if (hasSel) {
                     editor.applyFillToSelection(Paint.None)
                 } else {
                     editor.curFill = Paint.None
                     editor.onChanged()
                 }
-            }) { Text("なし") }
-            Button(onClick = { colorDialogTarget = "fill" }) { Text("色…") }
-            Button(onClick = {
+            }
+            CompactButton("色…", filled = true) { colorDialogTarget = "fill" }
+            CompactButton("線形") {
                 val id = ensureGradient(editor, radial = false)
                 if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else editor.curFill = Paint.Server(id)
-            }) { Text("線形") }
-            Button(onClick = {
+            }
+            CompactButton("円形") {
                 val id = ensureGradient(editor, radial = true)
                 if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else editor.curFill = Paint.Server(id)
-            }) { Text("円形") }
+            }
         }
 
         // ―――― 線 ――――
@@ -74,11 +116,11 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val stroke = if (hasSel) editor.selectionStroke() else editor.curStroke
             Swatch(stroke)
-            Button(onClick = {
+            CompactButton("なし") {
                 if (hasSel) editor.applyStrokeToSelection(Paint.None)
                 else { editor.curStroke = Paint.None; editor.onChanged() }
-            }) { Text("なし") }
-            Button(onClick = { colorDialogTarget = "stroke" }) { Text("色…") }
+            }
+            CompactButton("色…", filled = true) { colorDialogTarget = "stroke" }
         }
         val strokeWidth = if (hasSel) editor.selectionStrokeWidth() else editor.curStrokeWidth
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -126,21 +168,94 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
             Text("${(opacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(38.dp))
         }
 
+        // ―――― 選択 ――――
+        if (hasSel) {
+            SectionTitle("選択")
+            // 位置・サイズの数値指定
+            val sb = editor.trace.boundsOf(sel)
+            if (sb != null) {
+                var xText by remember(sb.x, refresh) { mutableStateOf(dev.svgpro.core.util.Numbers.format(sb.x, 1)) }
+                var yText by remember(sb.y, refresh) { mutableStateOf(dev.svgpro.core.util.Numbers.format(sb.y, 1)) }
+                var wText by remember(sb.width, refresh) { mutableStateOf(dev.svgpro.core.util.Numbers.format(sb.width, 1)) }
+                var hText by remember(sb.height, refresh) { mutableStateOf(dev.svgpro.core.util.Numbers.format(sb.height, 1)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(value = xText, onValueChange = { xText = it }, label = { Text("X") }, modifier = Modifier.weight(1f), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = yText, onValueChange = { yText = it }, label = { Text("Y") }, modifier = Modifier.weight(1f), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(value = wText, onValueChange = { wText = it }, label = { Text("W") }, modifier = Modifier.weight(1f), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(value = hText, onValueChange = { hText = it }, label = { Text("H") }, modifier = Modifier.weight(1f), singleLine = true, textStyle = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        val x = dev.svgpro.core.util.Numbers.parse(xText)
+                        val y = dev.svgpro.core.util.Numbers.parse(yText)
+                        val w = dev.svgpro.core.util.Numbers.parse(wText)
+                        val h = dev.svgpro.core.util.Numbers.parse(hText)
+                        if (x != null && y != null) {
+                            editor.setSelectionPosition(x, y)
+                            if (w != null && h != null && w > 0 && h > 0) editor.setSelectionSize(w, h)
+                        }
+                    }) { Text("適用") }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.selectSameFill() }, label = { Text("同じ塗り", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.selectSameStroke() }, label = { Text("同じ線", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.selectSameKind() }, label = { Text("同じ種類", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.invertSelection() }, label = { Text("選択反転", style = MaterialTheme.typography.labelSmall) })
+                if (sel.size == 1 && sel[0].tag == "g") {
+                    AssistChip(onClick = { editor.selectChildren() }, label = { Text("内部へ", style = MaterialTheme.typography.labelSmall) })
+                }
+            }
+        }
+
         // ―――― 整列 ――――
         SectionTitle("整列・配置")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            AssistChip(onClick = { editor.alignSelection("left") }, label = { Text("左", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.alignSelection("centerX") }, label = { Text("左右中央", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.alignSelection("right") }, label = { Text("右", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.alignSelection("top") }, label = { Text("上", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.alignSelection("centerY") }, label = { Text("上下中央", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.alignSelection("bottom") }, label = { Text("下", style = MaterialTheme.typography.labelSmall) })
+            listOf(
+                AlignRelative.SELECTION to "選択範囲",
+                AlignRelative.CANVAS to "キャンバス",
+                AlignRelative.KEY_OBJECT to "キーオブジェクト",
+            ).forEach { (mode, label) ->
+                AssistChip(
+                    onClick = { alignRelative = mode },
+                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    colors = if (alignRelative == mode) {
+                        AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    } else {
+                        AssistChipDefaults.assistChipColors()
+                    },
+                )
+            }
+            if (alignRelative == AlignRelative.KEY_OBJECT && hasSel) {
+                AssistChip(onClick = { editor.keyObject = sel.first() }, label = { Text("基準に指定", style = MaterialTheme.typography.labelSmall) })
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            AssistChip(onClick = { editor.distributeSelection(true) }, label = { Text("横均等", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.distributeSelection(false) }, label = { Text("縦均等", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.flipSelection(true) }, label = { Text("左右反転", style = MaterialTheme.typography.labelSmall) })
-            AssistChip(onClick = { editor.flipSelection(false) }, label = { Text("上下反転", style = MaterialTheme.typography.labelSmall) })
+        val alignFn: (String) -> Unit = { mode ->
+            if (alignRelative == AlignRelative.SELECTION) editor.alignSelection(mode) else editor.alignSelectionTo(mode, alignRelative)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            IconAction(AppIcons.AlignLeft, "左揃え") { alignFn("left") }
+            IconAction(AppIcons.AlignCenterH, "左右中央揃え") { alignFn("centerX") }
+            IconAction(AppIcons.AlignRight, "右揃え") { alignFn("right") }
+            IconAction(AppIcons.AlignTop, "上揃え") { alignFn("top") }
+            IconAction(AppIcons.AlignCenterV, "上下中央揃え") { alignFn("centerY") }
+            IconAction(AppIcons.AlignBottom, "下揃え") { alignFn("bottom") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            IconAction(AppIcons.DistH, "横に等間隔") {
+                if (alignRelative == AlignRelative.SELECTION) editor.distributeSelection(true) else editor.distributeSelectionEx(true)
+            }
+            IconAction(AppIcons.DistV, "縦に等間隔") {
+                if (alignRelative == AlignRelative.SELECTION) editor.distributeSelection(false) else editor.distributeSelectionEx(false)
+            }
+            IconAction(AppIcons.FlipH, "左右反転") { editor.flipSelection(true) }
+            IconAction(AppIcons.FlipV, "上下反転") { editor.flipSelection(false) }
+        }
+        if (hasSel) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.snapSelectionToGrid() }, label = { Text("グリッドに配置", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { transformDialog = true }, label = { Text("変形…", style = MaterialTheme.typography.labelSmall) })
+            }
         }
 
         // ―――― パス操作 ――――
@@ -161,7 +276,118 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                 AssistChip(onClick = { editor.reversePath() }, label = { Text("方向反転", style = MaterialTheme.typography.labelSmall) })
                 AssistChip(onClick = { editor.joinPaths() }, label = { Text("結合", style = MaterialTheme.typography.labelSmall) })
-                AssistChip(onClick = { outlineStroke(editor) }, label = { Text("線をパス化", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.strokeToPathSelection() }, label = { Text("線をパス化", style = MaterialTheme.typography.labelSmall) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.compoundSelection() }, label = { Text("複合パス", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.releaseCompound() }, label = { Text("複合解除", style = MaterialTheme.typography.labelSmall) })
+                val rule = StyleUtil.fillRule(sel.first())
+                AssistChip(
+                    onClick = { editor.setFillRuleSelection(if (rule == "evenodd") "nonzero" else "evenodd") },
+                    label = { Text("塗り規則: $rule", style = MaterialTheme.typography.labelSmall) },
+                )
+            }
+        }
+
+        // ―――― クリッピング / マスク ――――
+        if (sel.isNotEmpty()) {
+            SectionTitle("クリッピング・マスク")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(
+                    onClick = { editor.createClipFromSelection() },
+                    enabled = sel.size >= 2,
+                    label = { Text("クリッピング作成", style = MaterialTheme.typography.labelSmall) },
+                )
+                AssistChip(onClick = { editor.releaseClipSelection() }, label = { Text("クリップ解除", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(
+                    onClick = { editor.createMaskFromSelection() },
+                    enabled = sel.size >= 2,
+                    label = { Text("マスク作成", style = MaterialTheme.typography.labelSmall) },
+                )
+                AssistChip(onClick = { editor.releaseMaskSelection() }, label = { Text("マスク解除", style = MaterialTheme.typography.labelSmall) })
+            }
+            Text(
+                "最前面の図形で、それ以外の選択を非破壊で切り抜きます",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // ―――― シンボル ――――
+        if (sel.isNotEmpty()) {
+            SectionTitle("シンボル")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.createSymbolFromSelection() }, label = { Text("シンボル化", style = MaterialTheme.typography.labelSmall) })
+                val isUse = sel.firstOrNull()?.tag == "use"
+                if (isUse) {
+                    AssistChip(onClick = { editor.breakSymbolInstance() }, label = { Text("インスタンス解除", style = MaterialTheme.typography.labelSmall) })
+                }
+            }
+        }
+
+        // ―――― グラデーションエディタ ――――
+        if (hasSel) {
+            val gm = editor.gradientModelOfSelection()
+            if (gm != null) {
+                SectionTitle("グラデーション")
+                Text(
+                    "ストップ ${gm.stops.size}個（canvasでハンドル編集可）",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                gm.stops.forEachIndexed { i, stop ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(
+                            Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(Color(stop.argb))
+                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                .clickable { stopColorTarget = i },
+                        )
+                        var offText by remember(stop.offset, refresh) {
+                            mutableStateOf(dev.svgpro.core.util.Numbers.format(stop.offset))
+                        }
+                        OutlinedTextField(
+                            value = offText,
+                            onValueChange = { offText = it },
+                            modifier = Modifier.width(64.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                        TextButton(onClick = {
+                            dev.svgpro.core.util.Numbers.parse(offText)?.let { editor.moveGradientStop(i, it) }
+                        }) { Text("位置", style = MaterialTheme.typography.labelSmall) }
+                        if (gm.stops.size > 2) {
+                            TextButton(onClick = { editor.removeGradientStop(i) }) {
+                                Text("削除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = { editor.addGradientStop(0.5) }) { Text("ストップ追加", style = MaterialTheme.typography.labelSmall) }
+                    TextButton(onClick = {
+                        val handles = editor.gradientHandlePoints() ?: return@TextButton
+                        val model = handles.first
+                        val s = handles.second
+                        val e = handles.third
+                        editor.commit("gradient angle") { batch ->
+                            batch.touch(model.def)
+                            val mid = dev.svgpro.core.geom.Vec((s.x + e.x) / 2, (s.y + e.y) / 2)
+                            val half = dev.svgpro.core.geom.Vec((e.x - s.x) / 2, (e.y - s.y) / 2)
+                            val rot = dev.svgpro.core.geom.Matrix().rotateDeg(90.0)
+                            val q = rot.apply(half)
+                            editor.updateGradientHandles(mid - q, mid + q)
+                        }
+                    }) { Text("角度90°", style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        }
+
+        // ―――― テキスト拡張 ――――
+        if (sel.any { it.tag == "text" } && sel.any { it.tag == "path" }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.makeTextPath() }, label = { Text("パスに沿わせる", style = MaterialTheme.typography.labelSmall) })
             }
         }
 
@@ -195,6 +421,39 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
                 AssistChip(onClick = { session.reverseAll(); editor.onChanged() },
                     label = { Text("方向反転", style = MaterialTheme.typography.labelSmall) })
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { session.invertNodeSelection(); editor.onChanged() },
+                    label = { Text("選択反転", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { session.selectAllNodes(); editor.onChanged() },
+                    label = { Text("全選択", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.commit("distribute nodes") { b -> b.touch(session.el); session.distributeSelectedNodes(true) } },
+                    label = { Text("横等間隔", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.commit("distribute nodes") { b -> b.touch(session.el); session.distributeSelectedNodes(false) } },
+                    label = { Text("縦等間隔", style = MaterialTheme.typography.labelSmall) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.commit("segments line") { b -> b.touch(session.el); session.convertSelectedSegments(false) } },
+                    label = { Text("セグメント直線化", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.commit("segments curve") { b -> b.touch(session.el); session.convertSelectedSegments(true) } },
+                    label = { Text("セグメント曲線化", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.commit("delete segments") { b -> b.touch(session.el); session.deleteSelectedSegments() } },
+                    label = { Text("セグメント削除", style = MaterialTheme.typography.labelSmall) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                AssistChip(onClick = { editor.commit("join ends") { b -> b.touch(session.el); session.joinSelectedEnds() } },
+                    label = { Text("端点を接続", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.commit("split nodes") { b -> b.touch(session.el); session.splitAtSelectedNodes() } },
+                    label = { Text("ノードで切断", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.commit("reduce nodes") { b -> b.touch(session.el); session.reduceNodesInPath(0.5 / editor.zoom.coerceAtLeast(0.01)) } },
+                    label = { Text("ノード削減", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { handleDialog = true },
+                    label = { Text("ハンドル数値…", style = MaterialTheme.typography.labelSmall) })
+            }
+            Text(
+                "隣接する2ノードを選ぶとセグメント操作、端点2つで接続できます",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         if (!hasSel) {
@@ -211,7 +470,7 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
         ColorPickerDialog(
             title = if (target == "fill") "塗りの色" else "線の色",
             initial = when (target) {
-                "fill" -> (if (hasSel) editor.selectionFill() else editor.curFill).let { (it as? Paint.Solid)?.argb ?: 0xFF42A5F5.toInt() }
+                "fill" -> (if (hasSel) editor.selectionFill() else editor.curFill).let { (it as? Paint.Solid)?.argb ?: 0xFF1473E6.toInt() }
                 else -> (if (hasSel) editor.selectionStroke() else editor.curStroke).let { (it as? Paint.Solid)?.argb ?: 0xFF222222.toInt() }
             },
             onDismiss = { colorDialogTarget = null },
@@ -233,6 +492,27 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
         ) { v ->
             dev.svgpro.core.util.Numbers.parse(v)?.let { editor.offsetPath(it) }
             offsetDialog = false
+        }
+    }
+
+    if (transformDialog) {
+        TransformDialog(editor = editor, onDismiss = { transformDialog = false })
+    }
+
+    if (handleDialog) {
+        HandleNumericDialog(editor = editor, onDismiss = { handleDialog = false })
+    }
+
+    stopColorTarget?.let { idx ->
+        val gm = editor.gradientModelOfSelection()
+        val initial = gm?.stops?.getOrNull(idx)?.argb ?: 0xFF1473E6.toInt()
+        ColorPickerDialog(
+            title = "ストップ${idx + 1}の色",
+            initial = initial,
+            onDismiss = { stopColorTarget = null },
+        ) { argb ->
+            editor.setGradientStopColor(idx, argb)
+            stopColorTarget = null
         }
     }
 
@@ -294,7 +574,47 @@ private fun TextAttrEditors(editor: Editor, el: Element) {
 
 @Composable
 private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(2.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+    }
+}
+
+/** 塗り/線のコンパクトボタン */
+@Composable
+private fun CompactButton(label: String, filled: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/** 整列等のアイコンボタン */
+@Composable
+private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = desc, modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurface)
+    }
 }
 
 @Composable
@@ -311,7 +631,7 @@ private fun Swatch(paint: Paint?) {
             .background(
                 if (paint is Paint.Server) {
                     Brush.linearGradient(
-                        listOf(Color(0xFF42A5F5), Color(0xFFFFB74D)),
+                        listOf(Color(0xFF1473E6), Color(0xFFE8A33D)),
                     )
                 } else {
                     SolidColor(color)
@@ -321,62 +641,10 @@ private fun Swatch(paint: Paint?) {
     )
 }
 
-/** ストロークのアウトライン化（Paint.getFillPathを使用） */
+/** ストロークのアウトライン化（コア実装・開パス対応）は editor.strokeToPathSelection() へ移行 */
+@Deprecated("editor.strokeToPathSelection() を使用")
 fun outlineStroke(editor: Editor) {
-    val el = editor.selection.firstOrNull() ?: return
-    val pd = dev.svgpro.core.path.PathData.parse(el.attr("d")) ?: return
-    val androidPath = dev.svgpro.canvas.SvgRenderer.toAndroidPath(pd)
-    val paint = android.graphics.Paint()
-    paint.style = android.graphics.Paint.Style.STROKE
-    paint.strokeWidth = editor.selectionStrokeWidth().toFloat()
-    paint.strokeCap = when (StyleUtil.getProperty(el, "stroke-linecap")) {
-        "round" -> android.graphics.Paint.Cap.ROUND
-        "square" -> android.graphics.Paint.Cap.SQUARE
-        else -> android.graphics.Paint.Cap.BUTT
-    }
-    paint.strokeJoin = when (StyleUtil.getProperty(el, "stroke-linejoin")) {
-        "round" -> android.graphics.Paint.Join.ROUND
-        "bevel" -> android.graphics.Paint.Join.BEVEL
-        else -> android.graphics.Paint.Join.MITER
-    }
-    val dst = android.graphics.Path()
-    paint.getFillPath(androidPath, dst)
-    val out = outlinePathToData(dst) ?: return
-    val abs = editor.trace.absOf(el)
-    out.transform(abs)
-    editor.commit("stroke to path") { batch ->
-        batch.touch(el)
-        el.setAttr("d", out.write())
-        el.setAttr("fill-rule", "evenodd")
-        StyleUtil.setProperty(el, "fill", StyleUtil.getProperty(el, "stroke") ?: "#000000")
-        StyleUtil.setProperty(el, "stroke", "none")
-    }
-}
-
-private fun outlinePathToData(src: android.graphics.Path): dev.svgpro.core.path.PathData? {
-    val segs = ArrayList<dev.svgpro.core.path.Seg>()
-    val measure = android.graphics.PathMeasure(src, false)
-    while (true) {
-        val len = measure.length
-        if (len > 0.01f) {
-            val steps = (len / 0.7f).toInt().coerceIn(8, 600)
-            var first = true
-            for (i in 0..steps) {
-                val pos = FloatArray(2)
-                measure.getPosTan(len * i / steps, pos, null)
-                if (first) {
-                    segs.add(dev.svgpro.core.path.Seg.Move(pos[0].toDouble(), pos[1].toDouble()))
-                    first = false
-                } else {
-                    segs.add(dev.svgpro.core.path.Seg.Line(pos[0].toDouble(), pos[1].toDouble()))
-                }
-            }
-            segs.add(dev.svgpro.core.path.Seg.Close)
-        }
-        if (!measure.nextContour()) break
-    }
-    if (segs.isEmpty()) return null
-    return dev.svgpro.core.path.PathData(segs)
+    editor.strokeToPathSelection()
 }
 
 /** グラデーション定義を作成/取得 */

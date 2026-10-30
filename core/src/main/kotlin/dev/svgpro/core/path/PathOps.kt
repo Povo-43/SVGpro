@@ -250,6 +250,18 @@ class PathData(val segs: MutableList<Seg>) {
         return l
     }
 
+    /** ノード数の概算（スナップ等のコスト制御用。解析を伴わない） */
+    fun nodeCountEstimate(): Int {
+        var n = 0
+        for (s in segs) {
+            when (s) {
+                is Seg.Move, is Seg.Line, is Seg.Cubic, is Seg.Quad, is Seg.Arc -> n++
+                Seg.Close -> {}
+            }
+        }
+        return n
+    }
+
     /**
      * フラットな点集合に基づいたbounds（選択ボックス/表示用）。
      * 曲線の外れは flatten復元性が常であり、tol誤差で十分

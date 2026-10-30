@@ -9,6 +9,15 @@ import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.NodeRef
 import dev.svgpro.editor.ToolType
+import dev.svgpro.editor.computeSmartGuides
+import dev.svgpro.editor.selectParent
+import dev.svgpro.editor.gradientHandlePoints
+import dev.svgpro.editor.setupGradientEdit
+import dev.svgpro.editor.computeSmartGuides
+import dev.svgpro.editor.selectParent
+import dev.svgpro.editor.gradientHandlePoints
+import dev.svgpro.editor.setupGradientEdit
+import dev.svgpro.editor.updateGradientHandles
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -43,6 +52,10 @@ class ToolController(val editor: Editor) {
     private var nodeDragStart = Vec.ZERO
     private var nodeMirror = true
 
+    // gradient用
+    private var gradientDragEnd = true
+    private var gradientBatch: dev.svgpro.core.edit.EditBatch? = null
+
     // pen用
     private var penDownPos = Vec.ZERO
     private var penDragging = false
@@ -50,12 +63,14 @@ class ToolController(val editor: Editor) {
 
     // freehand
     private var freehandActive = false
+    /** フリーハンド中の筆圧サンプル（pointsと並行。筆圧非対応端末は0.5固定） */
+    private var freehandPressures = ArrayList<Float>()
 
     // タップ検出
     private var downTime = 0L
     private var moved = false
 
-    enum class Mode { NONE, MOVE, SCALE, ROTATE, MARQUEE, NODE_DRAG, HANDLE_DRAG, SHAPE, FREEHAND, PAN }
+    enum class Mode { NONE, MOVE, SCALE, ROTATE, MARQUEE, NODE_DRAG, HANDLE_DRAG, SHAPE, FREEHAND, PAN, GRADIENT_DRAG }
 
     enum class SelectionHandle { TOP_LEFT, TOP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT, BOTTOM, BOTTOM_LEFT, LEFT, ROTATE }
 
@@ -113,12 +128,15 @@ class ToolController(val editor: Editor) {
             ToolType.HAND -> {
                 mode = Mode.PAN
             }
-            ToolType.SELECT -> onSelectDown(user, screen, isStylus)
+            ToolType.SELECT -> onSelectDown(user, screen, isStylus, doubleTap)
             ToolType.NODE -> onNodeDown(user, screen, doubleTap, isStylus)
             ToolType.PEN -> onPenDown(user, isStylus)
+            ToolType.GRADIENT -> onGradientDown(user, screen)
             ToolType.FREEHAND -> {
                 mode = Mode.FREEHAND
                 freehandActive = true
+                freehandPressures = ArrayList()
+                freehandPressures.add(ev.pressure.coerceIn(0.05f, 1.0f))
                 editor.freehandDraft = mutableListOf(user)
             }
             ToolType.RECT, ToolType.RRECT, ToolType.ELLIPSE, ToolType.LINE, ToolType.POLYGON, ToolType.STAR, ToolType.POLYLINE -> {
@@ -131,8 +149,29 @@ class ToolController(val editor: Editor) {
             ToolType.EYEDROPPER -> {
                 pickColor(user)
             }
+            ToolType.GRADIENT -> {
+                onGradientDown(user, screen)
+            }
         }
         editor.notifyChanged()
+    }
+
+    /** グラデーションツール: ハンドル（始点/終点）をつかんでドラッグ */
+    private fun onGradientDown(user: Vec, screen: Vec) {
+        editor.setupGradientEdit()
+        val handles = editor.gradientHandlePoints() ?: return
+        val s = handles.second
+        val e = handles.third
+        val ss = editor.userToScreen(s)
+        val es = editor.userToScreen(e)
+        if (ss.distanceTo(screen) > 28 && es.distanceTo(screen) > 28) return // ハンドル外
+        gradientDragEnd = es.distanceTo(screen) <= ss.distanceTo(screen)
+        val defId = editor.gradientEdit?.defId ?: return
+        val def = editor.doc.root.findById(defId) ?: return
+        val batch = dev.svgpro.core.edit.EditBatch()
+        batch.touch(def)
+        gradientBatch = batch
+        mode = Mode.GRADIENT_DRAG
     }
 
     fun onMove(user: Vec, screen: Vec, ev: MotionEvent) {
@@ -141,10 +180,30 @@ class ToolController(val editor: Editor) {
 
         when (mode) {
             Mode.PAN -> panBy?.invoke(screen.x - lastScreen.x, screen.y - lastScreen.y)
+            Mode.GRADIENT_DRAG -> {
+                val handles = editor.gradientHandlePoints() ?: return
+                val s = handles.second
+                val e = handles.third
+                if (gradientDragEnd) editor.updateGradientHandles(s, user)
+                else editor.updateGradientHandles(user, e)
+            }
             Mode.MOVE -> {
                 var d = delta
                 // スナップ（選択bbox基準）
                 d = applySnapForMove(delta)
+                // スマートガイド（他オブジェクトとの整列補助）
+                editor.smartGuideV.clear()
+                editor.smartGuideH.clear()
+                if (editor.smartGuides) {
+                    val b = editor.trace.boundsOf(editor.selection)
+                    if (b != null) {
+                        val tol = editor.snapTolerancePx / editor.zoom.coerceAtLeast(1e-6)
+                        val (adj, vl, hl) = editor.computeSmartGuides(b, d, tol)
+                        d = adj
+                        editor.smartGuideV.addAll(vl)
+                        editor.smartGuideH.addAll(hl)
+                    }
+                }
                 editor.moveSelection(d)
             }
             Mode.SCALE -> {
@@ -181,9 +240,11 @@ class ToolController(val editor: Editor) {
                     val m = session.models.getOrNull(ref.sub) ?: continue
                     val start = nodeDragStartPositions[ref] ?: continue
                     var np = start + d
+                    // グリッド → ガイドの順でスナップ（ドラッグ中のノード自身）
                     if (editor.snapToGrid) {
                         np = Vec(round(np.x / editor.gridSize) * editor.gridSize, round(np.y / editor.gridSize) * editor.gridSize)
                     }
+                    np = snapToGuideLines(np)
                     m.setNodePosition(ref.node, np)
                 }
                 session.flush()
@@ -215,6 +276,7 @@ class ToolController(val editor: Editor) {
                 val lastPoint = draft.lastOrNull() ?: user
                 if (lastPoint.distanceTo(user) * editor.zoom > 2.0) {
                     draft.add(user)
+                    freehandPressures.add(if (editor.usePressure) ev.pressure.coerceIn(0.05f, 1.0f) else 0.5f)
                     editor.notifyChanged()
                 }
             }
@@ -236,6 +298,9 @@ class ToolController(val editor: Editor) {
                 if (cs != null) editor.undoStack.push(cs)
                 dragSession = null
                 preTransforms = null
+                editor.smartGuideV.clear()
+                editor.smartGuideH.clear()
+                editor.setLastMoveDelta(Vec.ZERO)
                 editor.notifyChanged()
             }
             Mode.MARQUEE -> {
@@ -284,8 +349,22 @@ class ToolController(val editor: Editor) {
                 editor.freehandDraft = null
                 freehandActive = false
                 if (draft != null && draft.size >= 2 && !cancelled) {
-                    val el = buildFreehand(draft)
+                    val el = if (editor.usePressure && freehandPressures.size >= draft.size) {
+                        buildFreehandWithPressure(draft, freehandPressures)
+                    } else {
+                        buildFreehand(draft)
+                    }
                     if (el != null) editor.addElement(el, "freehand")
+                }
+                freehandPressures = ArrayList()
+                editor.notifyChanged()
+            }
+            Mode.GRADIENT_DRAG -> {
+                val batch = gradientBatch
+                gradientBatch = null
+                if (batch != null) {
+                    val cs = batch.endAndCommit("gradient edit")
+                    if (cs != null) editor.undoStack.push(cs)
                 }
                 editor.notifyChanged()
             }
@@ -415,7 +494,7 @@ class ToolController(val editor: Editor) {
 
     // ―――― SELECT tool ――――
 
-    private fun onSelectDown(user: Vec, screen: Vec, isStylus: Boolean) {
+    private fun onSelectDown(user: Vec, screen: Vec, isStylus: Boolean, doubleTap: Boolean) {
         // ハンドル判定
         val handle = hitHandle(screen, 22.0)
         if (handle != null && editor.selection.isNotEmpty()) {
@@ -436,6 +515,20 @@ class ToolController(val editor: Editor) {
                 }
             }
             return
+        }
+        // ダブルタップ: グループ選択（所属する最上位グループを選択）
+        if (doubleTap) {
+            val hitInner = editor.trace.hitTest(user, 10.0 / editor.zoom)
+            if (hitInner != null) {
+                val before = editor.selection.toList()
+                editor.select(hitInner, additive = false)
+                editor.selectParent()
+                if (editor.selection.isEmpty()) {
+                    editor.selection.addAll(before)
+                }
+                editor.notifyChanged()
+                return
+            }
         }
         // 要素ヒット
         val hit = editor.trace.hitTest(user, 10.0 / editor.zoom)
@@ -565,6 +658,20 @@ class ToolController(val editor: Editor) {
 
     private fun snapNodeDelta(delta: Vec): Vec = delta
 
+    /** 点をガイド線へスナップ（ガイド近傍の座標をガイド上へ寄せる） */
+    private fun snapToGuideLines(p: Vec): Vec {
+        if (!editor.snapToGuides || editor.guides.isEmpty()) return p
+        val tol = editor.snapTolerancePx / editor.zoom.coerceAtLeast(1e-6)
+        var x = p.x
+        var y = p.y
+        for (g in editor.guides) {
+            if (!g.visible || g.locked) continue
+            if (g.horizontal && abs(p.y - g.pos) < tol) y = g.pos
+            else if (!g.horizontal && abs(p.x - g.pos) < tol) x = g.pos
+        }
+        return Vec(x, y)
+    }
+
     private fun isShift(ev: MotionEvent): Boolean =
         (ev.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0
 
@@ -650,6 +757,59 @@ class ToolController(val editor: Editor) {
             segs.add(Seg.Cubic(c1.x, c1.y, c2.x, c2.y, p2.x, p2.y))
         }
         return segs
+    }
+
+    /**
+     * 筆圧対応フリーハンド: 点列を筆圧で幅が変わるポリゴン輪郭へ変換する。
+     * 筆圧非対応端末では一定幅のストロークと同じ見た目になる。
+     */
+    private fun buildFreehandWithPressure(points: List<Vec>, pressures: List<Float>): dev.svgpro.core.svg.Element? {
+        if (points.size < 2) return null
+        val simplified = rdp(points, 1.0 / editor.zoom)
+        if (simplified.size < 2) return null
+        // 簡略化後の各点に近い筆圧を対応付ける
+        val baseWidth = if (editor.curStroke is dev.svgpro.core.model.Paint.None) 3.0 else editor.curStrokeWidth.coerceAtLeast(1.0)
+        // 各点の幅（base × pressure×2をクランプ）
+        val widths = simplified.map { p ->
+            var best = 0.5f
+            var bestD = Double.MAX_VALUE
+            for ((i, q) in points.withIndex()) {
+                val d = p.distanceTo(q)
+                if (d < bestD) {
+                    bestD = d
+                    best = pressures.getOrElse(i) { 0.5f }
+                }
+            }
+            (baseWidth * (0.35 + best * 1.3)).coerceAtLeast(0.3)
+        }
+        // 輪郭: 各点で法線方向に±幅/2
+        val left = ArrayList<Vec>()
+        val right = ArrayList<Vec>()
+        for (i in simplified.indices) {
+            val prev = simplified[if (i == 0) 0 else i - 1]
+            val next = simplified[if (i == simplified.size - 1) simplified.size - 1 else i + 1]
+            val dir = (next - prev).normalized()
+            val n = Vec(-dir.y, dir.x)
+            val half = widths[i] / 2.0
+            left.add(simplified[i] + n * half)
+            right.add(simplified[i] - n * half)
+        }
+        val segs = ArrayList<Seg>()
+        segs.add(Seg.Move(left[0].x, left[0].y))
+        for (i in 1 until left.size) segs.add(Seg.Line(left[i].x, left[i].y))
+        for (i in right.indices.reversed()) segs.add(Seg.Line(right[i].x, right[i].y))
+        segs.add(Seg.Close)
+        val el = dev.svgpro.core.svg.Element("path")
+        el.setAttr("d", dev.svgpro.core.path.PathData(segs).write())
+        el.setAttr("fill-rule", "nonzero")
+        val strokeColor = (editor.curStroke as? dev.svgpro.core.model.Paint.Solid)?.argb ?: 0xFF222222.toInt()
+        dev.svgpro.core.model.StyleUtil.setProperty(el, "fill", dev.svgpro.core.model.Color.css(strokeColor))
+        dev.svgpro.core.model.StyleUtil.setProperty(el, "stroke", "none")
+        editor.applyCurrentStyle(el)
+        // 塗りを筆圧輪郭の色で上書き（applyCurrentStyleがfillを設定するため再度）
+        dev.svgpro.core.model.StyleUtil.setProperty(el, "fill", dev.svgpro.core.model.Color.css(strokeColor))
+        dev.svgpro.core.model.StyleUtil.setProperty(el, "stroke", "none")
+        return el
     }
 
     // ―――― eyedropper ――――

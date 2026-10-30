@@ -7,15 +7,21 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -30,18 +36,25 @@ import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.model.TextAttr
 import dev.svgpro.core.svg.TokenSource
 import dev.svgpro.editor.Editor
+import dev.svgpro.editor.renderToBitmap
+import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.ToolType
 import java.io.BufferedReader
 
 /**
- * メインエディタ画面。
- * レイアウト: 上部バー / [左ツールレール | キャンバス | 右パネル(wide時)] / 下部ツールバー(小画面)
+ * メインエディタ画面（Illustrator風ダークUI）。
+ *
+ * レスポンシブ3段階:
+ *  - compact  (<600dp)  : 下部ツールバー + ボトムシートパネル
+ *  - medium   (<840dp)  : 左ツールレール + ボトムシートパネル
+ *  - expanded (≥840dp)  : 左ツールレール + 右ドックパネル（タブレット横持ち）
  */
 @Composable
 fun EditorScreen(vm: EditorViewModel = viewModel()) {
     val editor = vm.editor
     var refresh by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
+    val dark = isSystemInDarkTheme()
 
     var pendingTextPos by remember { mutableStateOf<Vec?>(null) }
     var showTextCreate by remember { mutableStateOf(false) }
@@ -50,6 +63,18 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showNewDoc by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPanel by remember { mutableStateOf<String?>(null) }
+    var showExportPng by remember { mutableStateOf(false) }
+    var showReplaceColor by remember { mutableStateOf(false) }
+    var showTransform by remember { mutableStateOf(false) }
+    var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
+
+    var showRestoreConfirm by remember { mutableStateOf(false) }
+
+    // 自動バックアップ（クラッシュ復元用）
+    LaunchedEffect(Unit) {
+        vm.startAutosave(context)
+        if (vm.hasBackup) showRestoreConfirm = true
+    }
 
     // エディタ変更通知 → 再描画
     LaunchedEffect(Unit) {
@@ -75,11 +100,19 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         }
     }
 
+    val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
+        if (uri != null) {
+            exportPngUri = uri
+            showExportPng = true
+        }
+    }
+
     fun doSave() {
         val uri = vm.currentUri
         if (uri != null) {
             saveToUri(vm, uri, editor)
             editor.markSaved()
+            vm.clearBackup(context)
         } else {
             createLauncher.launch(editor.documentName)
         }
@@ -100,24 +133,35 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
     val canvasView = remember { CanvasView(context) }
     LaunchedEffect(Unit) { canvasView.setup(editor) }
+    LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val isWide = maxWidth > 700.dp
+        val isExpanded = maxWidth >= 840.dp
+        val isMedium = !isExpanded && maxWidth >= 600.dp
+        val sheetMaxH = maxHeight * 0.44f
+
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             TopBar(
                 editor = editor,
-                onMenu = { showMenu = true },
+                showMenu = showMenu,
+                onMenuDismiss = { showMenu = false },
+                onMenuOpen = { showMenu = true },
                 onUndo = { editor.undo() },
                 onRedo = { editor.redo() },
                 onSave = { doSave() },
-                onFit = { editor.fitToPage() },
-                onZoom100 = { editor.zoomTo100() },
                 onPanel = { name -> showPanel = if (showPanel == name) null else name },
                 activePanel = showPanel,
+                onNew = { showNewDoc = true },
+                onOpen = { openLauncher.launch(arrayOf("image/svg+xml", "text/plain", "text/xml", "*/*")) },
+                onSaveAs = { createLauncher.launch(editor.documentName) },
+                onExportPng = { pngLauncher.launch("export.png") },
+                onReplaceColor = { showReplaceColor = true },
+                onTransform = { showTransform = true },
+                onSettings = { showDocSettings = true },
             )
 
             Row(Modifier.weight(1f)) {
-                if (isWide) {
+                if (isExpanded || isMedium) {
                     ToolRail(editor, vertical = true)
                 }
                 Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -126,71 +170,68 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                         update = { view -> view.invalidate() },
                         modifier = Modifier.fillMaxSize(),
                     )
-                    // ペン作成中の確定/取消
+                    // ペン作成中の確定/取消（フローティングバー）
                     if (editor.penDraft != null) {
-                        Row(
-                            Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 6.dp,
+                            shadowElevation = 8.dp,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
                         ) {
-                            FilledTonalButton(onClick = { editor.commitPenDraft(true) }) {
-                                Icon(AppIcons.Check, null); Spacer(Modifier.width(4.dp)); Text("閉じて確定")
-                            }
-                            FilledTonalButton(onClick = { editor.commitPenDraft(false) }) {
-                                Icon(AppIcons.Check, null); Spacer(Modifier.width(4.dp)); Text("確定")
-                            }
-                            OutlinedButton(onClick = { editor.cancelPenDraft() }) {
-                                Icon(AppIcons.Close, null); Spacer(Modifier.width(4.dp)); Text("取消")
+                            Row(
+                                Modifier.padding(6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Button(
+                                    onClick = { editor.commitPenDraft(true) },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                ) {
+                                    Icon(AppIcons.Check, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("閉じて確定", style = MaterialTheme.typography.labelLarge)
+                                }
+                                FilledTonalButton(
+                                    onClick = { editor.commitPenDraft(false) },
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                ) {
+                                    Text("確定", style = MaterialTheme.typography.labelLarge)
+                                }
+                                TextButton(onClick = { editor.cancelPenDraft() }) {
+                                    Text("取消", style = MaterialTheme.typography.labelLarge)
+                                }
                             }
                         }
                     }
                 }
-                if (isWide) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 2.dp,
-                        modifier = Modifier.width(300.dp).fillMaxHeight(),
-                    ) {
-                        when (showPanel) {
-                            "layers" -> LayersPanel(editor, refresh)
-                            else -> PropertiesPanel(editor, refresh)
-                        }
-                    }
+                if (isExpanded) {
+                    SidePanel(
+                        editor = editor,
+                        refresh = refresh,
+                        panel = showPanel,
+                        onClose = { showPanel = null },
+                    )
                 }
             }
 
-            if (!isWide) {
+            // compact: 下部ツールバー
+            if (!isExpanded && !isMedium) {
                 ToolRail(editor, vertical = false)
             }
 
-            if (!isWide && showPanel != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 4.dp,
-                    shape = MaterialTheme.shapes.large,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
-                ) {
-                    when (showPanel) {
-                        "layers" -> LayersPanel(editor, refresh)
-                        else -> PropertiesPanel(editor, refresh)
-                    }
-                }
+            // compact / medium: ボトムシートパネル
+            if (!isExpanded && showPanel != null) {
+                SheetPanel(
+                    editor = editor,
+                    refresh = refresh,
+                    panel = showPanel,
+                    onClose = { showPanel = null },
+                    maxHeight = sheetMaxH,
+                )
             }
 
             StatusBar(editor)
-        }
-
-        if (showMenu) {
-            MainMenu(
-                onDismiss = { showMenu = false },
-                onNew = { showMenu = false; showNewDoc = true },
-                onOpen = {
-                    showMenu = false
-                    openLauncher.launch(arrayOf("image/svg+xml", "text/plain", "text/xml", "*/*"))
-                },
-                onSave = { showMenu = false; doSave() },
-                onSaveAs = { showMenu = false; createLauncher.launch(editor.documentName) },
-                onSettings = { showMenu = false; showDocSettings = true },
-            )
         }
 
         if (showDocSettings) {
@@ -224,6 +265,56 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 showTextCreate = false
                 pendingTextPos = null
             }
+        }
+
+        if (showTransform) {
+            TransformDialog(editor = editor, onDismiss = { showTransform = false })
+        }
+
+        if (showReplaceColor) {
+            ReplaceColorDialog(editor = editor, onDismiss = { showReplaceColor = false })
+        }
+
+        if (showExportPng) {
+            val uri = exportPngUri
+            ExportPngDialog(
+                editor = editor,
+                onDismiss = { showExportPng = false },
+            ) { size, transparent, selectionOnly ->
+                if (uri != null) {
+                    try {
+                        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver
+                        val bmp = editor.renderToBitmap(size, transparent, selectionOnly)
+                        resolver?.openOutputStream(uri, "wt")?.use { out ->
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                        }
+                        bmp.recycle()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                showExportPng = false
+            }
+        }
+
+        if (showRestoreConfirm) {
+            AlertDialog(
+                onDismissRequest = { showRestoreConfirm = false },
+                title = { Text("バックアップから復元") },
+                text = { Text("前回のセッションの未保存データが見つかりました。復元しますか？") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.restoreBackup(context)
+                        showRestoreConfirm = false
+                    }) { Text("復元する") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        vm.clearBackup(context)
+                        showRestoreConfirm = false
+                    }) { Text("破棄") }
+                },
+            )
         }
 
         if (showExitConfirm) {
@@ -262,6 +353,19 @@ private fun handleKey(editor: Editor, keyCode: Int, event: KeyEvent, save: () ->
             )
             true
         }
+        ctrl && keyCode == KeyEvent.KEYCODE_J -> { editor.transformAgain(); true }
+        ctrl && keyCode == KeyEvent.KEYCODE_R -> { editor.showRulers = !editor.showRulers; editor.onChanged(); true }
+        keyCode == KeyEvent.KEYCODE_V && !ctrl -> { editor.tool = ToolType.SELECT; true }
+        keyCode == KeyEvent.KEYCODE_A && !ctrl -> { editor.tool = ToolType.NODE; true }
+        keyCode == KeyEvent.KEYCODE_P && !ctrl -> { editor.tool = ToolType.PEN; true }
+        keyCode == KeyEvent.KEYCODE_N && !ctrl -> { editor.tool = ToolType.FREEHAND; true }
+        keyCode == KeyEvent.KEYCODE_R && !ctrl -> { editor.tool = ToolType.RECT; true }
+        keyCode == KeyEvent.KEYCODE_O && !ctrl -> { editor.tool = ToolType.ELLIPSE; true }
+        keyCode == KeyEvent.KEYCODE_L && !ctrl -> { editor.tool = ToolType.LINE; true }
+        keyCode == KeyEvent.KEYCODE_T && !ctrl -> { editor.tool = ToolType.TEXT; true }
+        keyCode == KeyEvent.KEYCODE_I && !ctrl -> { editor.tool = ToolType.EYEDROPPER; true }
+        keyCode == KeyEvent.KEYCODE_H && !ctrl -> { editor.tool = ToolType.HAND; true }
+        keyCode == KeyEvent.KEYCODE_G && !ctrl -> { editor.tool = ToolType.GRADIENT; true }
         keyCode == KeyEvent.KEYCODE_DPAD_LEFT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) -10.0 else -1.0, 0.0); true }
         keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) 10.0 else 1.0, 0.0); true }
         keyCode == KeyEvent.KEYCODE_DPAD_UP && editor.selection.isNotEmpty() -> { nudge(editor, 0.0, if (shift) -10.0 else -1.0); true }
@@ -276,80 +380,152 @@ private fun nudge(editor: Editor, dx: Double, dy: Double) {
     editor.endDrag(session)
 }
 
+// ―――― 上部バー ――――
+
 @Composable
 private fun TopBar(
     editor: Editor,
-    onMenu: () -> Unit,
+    showMenu: Boolean,
+    onMenuOpen: () -> Unit,
+    onMenuDismiss: () -> Unit,
+    onNew: () -> Unit,
+    onOpen: () -> Unit,
+    onSaveAs: () -> Unit,
+    onExportPng: () -> Unit,
+    onReplaceColor: () -> Unit,
+    onTransform: () -> Unit,
+    onSettings: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onSave: () -> Unit,
-    onFit: () -> Unit,
-    onZoom100: () -> Unit,
     onPanel: (String) -> Unit,
     activePanel: String?,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+            Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onMenu) { Icon(AppIcons.MenuIcon, "メニュー") }
-            Column(Modifier.weight(1f)) {
+            Box {
+                IconButton(onClick = onMenuOpen) { Icon(AppIcons.MenuIcon, "メニュー") }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = onMenuDismiss,
+                    modifier = Modifier.width(220.dp),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("新規ドキュメント") },
+                        leadingIcon = { Icon(AppIcons.Plus, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onNew() },
+                    )
+                    DropdownMenuItem(text = { Text("SVGを開く…") }, onClick = { onMenuDismiss(); onOpen() })
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("上書き保存") },
+                        leadingIcon = { Icon(AppIcons.Save, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onSave() },
+                    )
+                    DropdownMenuItem(text = { Text("別名で保存…") }, onClick = { onMenuDismiss(); onSaveAs() })
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("PNG書き出し…") },
+                        leadingIcon = { Icon(AppIcons.Save, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onExportPng() },
+                    )
+                    DropdownMenuItem(text = { Text("数値変形…") }, onClick = { onMenuDismiss(); onTransform() })
+                    DropdownMenuItem(text = { Text("色の一括置換…") }, onClick = { onMenuDismiss(); onReplaceColor() })
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text("ドキュメント設定…") }, onClick = { onMenuDismiss(); onSettings() })
+                }
+            }
+
+            Column(Modifier.weight(1f).padding(start = 2.dp)) {
                 Text(
-                    editor.documentName + if (editor.dirty) " ●" else "",
-                    style = MaterialTheme.typography.titleSmall,
+                    editor.documentName,
+                    style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                Text(
-                    "${(editor.zoom * 100).toInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    if (editor.dirty) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary))
+                    }
+                    Text(
+                        "${(editor.zoom * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            IconButton(onClick = onUndo, enabled = editor.undoStack.canUndo) { Icon(AppIcons.Undo, "元に戻す") }
-            IconButton(onClick = onRedo, enabled = editor.undoStack.canRedo) { Icon(AppIcons.Redo, "やり直す") }
-            IconButton(onClick = onFit) { Icon(AppIcons.Fit, "全体表示") }
-            IconButton(onClick = onZoom100) { Text("1:1", style = MaterialTheme.typography.labelMedium) }
-            IconButton(onClick = { onPanel("layers") }) {
-                Icon(AppIcons.Layers, "レイヤー", tint = if (activePanel == "layers") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            }
-            IconButton(onClick = { onPanel("props") }) {
-                Icon(AppIcons.Palette, "プロパティ", tint = if (activePanel == "props") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-            }
-            IconButton(onClick = onSave) { Icon(AppIcons.Save, "保存") }
+
+            BarIconButton(AppIcons.Undo, "元に戻す", enabled = editor.undoStack.canUndo, onClick = onUndo)
+            BarIconButton(AppIcons.Redo, "やり直す", enabled = editor.undoStack.canRedo, onClick = onRedo)
+            BarDivider()
+            BarIconButton(
+                AppIcons.Layers, "レイヤー",
+                active = activePanel == "layers", onClick = { onPanel("layers") },
+            )
+            BarIconButton(
+                AppIcons.Palette, "プロパティ",
+                active = activePanel == "props", onClick = { onPanel("props") },
+            )
+            BarDivider()
+            BarIconButton(AppIcons.Save, "保存", onClick = onSave)
         }
     }
 }
 
 @Composable
-private fun StatusBar(editor: Editor) {
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            val vb = editor.doc.viewBox
-            Text(
-                "${dev.svgpro.core.util.Numbers.format(vb.width)} × ${dev.svgpro.core.util.Numbers.format(vb.height)}",
-                style = MaterialTheme.typography.labelSmall,
+private fun BarIconButton(
+    icon: ImageVector,
+    desc: String,
+    enabled: Boolean = true,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                when {
+                    active -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                    else -> androidx.compose.ui.graphics.Color.Transparent
+                },
             )
-            val selCount = editor.selection.size
-            Text(
-                if (selCount == 0) "オブジェクトなし" else "選択: $selCount",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = desc,
+            modifier = Modifier.size(20.dp),
+            tint = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                active -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
+        )
     }
 }
 
-/** ツールレール（縦/横） */
 @Composable
-fun ToolRail(editor: Editor, vertical: Boolean) {
-    val tools = listOf(
-        ToolType.SELECT to AppIcons.Select,
-        ToolType.NODE to AppIcons.Node,
-        ToolType.PEN to AppIcons.Pen,
-        ToolType.FREEHAND to AppIcons.Pencil,
+private fun BarDivider() {
+    Box(
+        Modifier
+            .padding(horizontal = 4.dp)
+            .width(1.dp)
+            .height(20.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant),
+    )
+}
+
+// ―――― ツールレール ――――
+
+private val toolGroups: List<List<Pair<ToolType, ImageVector>>> = listOf(
+    listOf(ToolType.SELECT to AppIcons.Select, ToolType.NODE to AppIcons.Node),
+    listOf(ToolType.PEN to AppIcons.Pen, ToolType.FREEHAND to AppIcons.Pencil),
+    listOf(
         ToolType.RECT to AppIcons.Rect,
         ToolType.RRECT to AppIcons.RRect,
         ToolType.ELLIPSE to AppIcons.Circle,
@@ -357,31 +533,82 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
         ToolType.POLYLINE to AppIcons.Polyline,
         ToolType.POLYGON to AppIcons.Polygon,
         ToolType.STAR to AppIcons.Star,
-        ToolType.TEXT to AppIcons.TextTool,
+    ),
+    listOf(ToolType.TEXT to AppIcons.TextTool),
+    listOf(
+        ToolType.GRADIENT to AppIcons.GradientTool,
         ToolType.EYEDROPPER to AppIcons.Eyedropper,
         ToolType.HAND to AppIcons.Hand,
-    )
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+    ),
+)
+
+private fun toolLabel(t: ToolType): String = when (t) {
+    ToolType.SELECT -> "選択"
+    ToolType.NODE -> "アンカー"
+    ToolType.PEN -> "ペン"
+    ToolType.FREEHAND -> "フリーハンド"
+    ToolType.RECT -> "長方形"
+    ToolType.RRECT -> "角丸長方形"
+    ToolType.ELLIPSE -> "楕円"
+    ToolType.LINE -> "直線"
+    ToolType.POLYLINE -> "ポリライン"
+    ToolType.POLYGON -> "多角形"
+    ToolType.STAR -> "スター"
+    ToolType.TEXT -> "テキスト"
+    ToolType.GRADIENT -> "グラデーション"
+    ToolType.EYEDROPPER -> "スポイト"
+    ToolType.HAND -> "手のひら"
+    ToolType.GRADIENT -> "グラデーション"
+}
+
+/** ツールレール（縦: レール / 横: compact用バー） */
+@Composable
+fun ToolRail(editor: Editor, vertical: Boolean) {
+    val haptic = LocalHapticFeedback.current
+    fun pickTool(t: ToolType) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        editor.tool = t
+    }
+
+    Surface(color = MaterialTheme.colorScheme.surface) {
         if (vertical) {
             Column(
-                Modifier.width(52.dp).verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
+                Modifier.width(48.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                tools.forEach { (tool, icon) -> ToolButton(editor, tool, icon) }
-                Spacer(Modifier.height(6.dp))
-                ToggleButtonMini("グリッド", editor.showGrid) { editor.showGrid = !editor.showGrid; editor.onChanged() }
-                ToggleButtonMini("スナップ", editor.snapToGrid) { editor.snapToGrid = !editor.snapToGrid }
-                ToggleButtonMini("ペンのみ", editor.penOnly) { editor.penOnly = !editor.penOnly }
+                toolGroups.forEachIndexed { gi, group ->
+                    if (gi > 0) RailSeparator(vertical = true)
+                    group.forEach { (tool, icon) -> ToolButton(editor, tool, icon, onClick = { pickTool(tool) }) }
+                }
+                RailSeparator(vertical = true)
+                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid) {
+                    editor.showGrid = !editor.showGrid; editor.onChanged()
+                }
+                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid) {
+                    editor.snapToGrid = !editor.snapToGrid
+                }
+                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly) {
+                    editor.penOnly = !editor.penOnly
+                }
             }
         } else {
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 2.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                tools.forEach { (tool, icon) -> ToolButton(editor, tool, icon) }
-                Spacer(Modifier.width(6.dp))
-                Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    ToggleButtonMini("グリッド", editor.showGrid) { editor.showGrid = !editor.showGrid; editor.onChanged() }
-                    ToggleButtonMini("ペンのみ", editor.penOnly) { editor.penOnly = !editor.penOnly }
+                toolGroups.forEachIndexed { gi, group ->
+                    if (gi > 0) RailSeparator(vertical = false)
+                    group.forEach { (tool, icon) -> ToolButton(editor, tool, icon, onClick = { pickTool(tool) }) }
+                }
+                RailSeparator(vertical = false)
+                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid) {
+                    editor.showGrid = !editor.showGrid; editor.onChanged()
+                }
+                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid) {
+                    editor.snapToGrid = !editor.snapToGrid
+                }
+                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly) {
+                    editor.penOnly = !editor.penOnly
                 }
             }
         }
@@ -389,69 +616,253 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
 }
 
 @Composable
-private fun ToolButton(editor: Editor, tool: ToolType, icon: ImageVector) {
-    val selected = editor.tool == tool
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else androidx.compose.ui.graphics.Color.Transparent
+private fun RailSeparator(vertical: Boolean) {
     Box(
         Modifier
-            .size(46.dp)
-            .background(bg, MaterialTheme.shapes.small)
-            .clickable { editor.tool = tool },
+            .padding(vertical = if (vertical) 4.dp else 0.dp, horizontal = if (vertical) 0.dp else 4.dp)
+            .then(if (vertical) Modifier.width(22.dp).height(1.dp) else Modifier.width(1.dp).height(22.dp))
+            .background(MaterialTheme.colorScheme.outlineVariant),
+    )
+}
+
+@Composable
+private fun ToolButton(editor: Editor, tool: ToolType, icon: ImageVector, onClick: () -> Unit) {
+    val selected = editor.tool == tool
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = tool.name, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        Icon(
+            icon,
+            contentDescription = toolLabel(tool),
+            modifier = Modifier.size(20.dp),
+            tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
 @Composable
-private fun ToggleButtonMini(label: String, checked: Boolean, onToggle: () -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-    )
+private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, onToggle: () -> Unit) {
+    Box(
+        Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = desc,
+            modifier = Modifier.size(19.dp),
+            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
+// ―――― パネル ――――
+
 @Composable
-private fun MainMenu(
-    onDismiss: () -> Unit,
-    onNew: () -> Unit,
-    onOpen: () -> Unit,
-    onSave: () -> Unit,
-    onSaveAs: () -> Unit,
-    onSettings: () -> Unit,
+private fun panelTitle(panel: String?): String = when (panel) {
+    "layers" -> "レイヤー / オブジェクト"
+    else -> "プロパティ"
+}
+
+/** expanded時の右ドックパネル */
+@Composable
+private fun SidePanel(
+    editor: Editor,
+    refresh: Int,
+    panel: String?,
+    onClose: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("SVGpro") },
-        text = {
-            Column {
-                MenuRow("新規ドキュメント", onNew)
-                MenuRow("SVGを開く…", onOpen)
-                MenuRow("上書き保存", onSave)
-                MenuRow("別名で保存…", onSaveAs)
-                MenuRow("ドキュメント設定…", onSettings)
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.width(300.dp).fillMaxHeight(),
+    ) {
+        Column {
+            Row(
+                Modifier.fillMaxWidth().height(38.dp).padding(start = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    panelTitle(panel),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
+                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(16.dp))
+                }
             }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
-    )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Box(Modifier.weight(1f)) {
+                when (panel) {
+                    "layers" -> LayersPanel(editor, refresh)
+                    else -> PropertiesPanel(editor, refresh)
+                }
+            }
+        }
+    }
+}
+
+/** compact / medium時のボトムシートパネル */
+@Composable
+private fun SheetPanel(
+    editor: Editor,
+    refresh: Int,
+    panel: String?,
+    onClose: () -> Unit,
+    maxHeight: androidx.compose.ui.unit.Dp,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        tonalElevation = 4.dp,
+        shadowElevation = 10.dp,
+        modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight),
+    ) {
+        Column {
+            // ハンドル + ヘッダー
+            Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(start = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    panelTitle(panel),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
+                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(16.dp))
+                }
+            }
+            Box(Modifier.heightIn(max = maxHeight - 60.dp)) {
+                when (panel) {
+                    "layers" -> LayersPanel(editor, refresh)
+                    else -> PropertiesPanel(editor, refresh)
+                }
+            }
+        }
+    }
+}
+
+// ―――― ステータスバー（ズーム操作つき） ――――
+
+@Composable
+private fun StatusBar(editor: Editor) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val vb = editor.doc.viewBox
+            Text(
+                "${dev.svgpro.core.util.Numbers.format(vb.width)} × ${dev.svgpro.core.util.Numbers.format(vb.height)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val selCount = editor.selection.size
+            Text(
+                if (selCount == 0) toolLabel(editor.tool) else "選択: $selCount",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (selCount > 0) {
+                val sb = editor.trace.boundsOf(editor.selection)
+                if (sb != null) {
+                    Text(
+                        "X${dev.svgpro.core.util.Numbers.format(sb.x, 1)} Y${dev.svgpro.core.util.Numbers.format(sb.y, 1)} " +
+                            "W${dev.svgpro.core.util.Numbers.format(sb.width, 1)} H${dev.svgpro.core.util.Numbers.format(sb.height, 1)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                val md = editor.lastMoveDelta
+                if (md != Vec.ZERO) {
+                    Text(
+                        "Δ ${dev.svgpro.core.util.Numbers.format(kotlin.math.hypot(md.x, md.y), 1)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+
+            // 表示トグル + ズームクラスター（Illustratorのドキュメントバー風）
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                MiniZoomButton(
+                    AppIcons.Ruler, "ルーラー",
+                    active = editor.showRulers,
+                ) {
+                    editor.showRulers = !editor.showRulers
+                    editor.onChanged()
+                }
+                MiniZoomButton(AppIcons.ZoomOut, "ズームアウト") {
+                    editor.zoomBy(1.0 / 1.25, Vec(editor.viewportW / 2.0, editor.viewportH / 2.0))
+                }
+                Text(
+                    "${(editor.zoom * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier
+                        .widthIn(min = 44.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { editor.zoomTo100() }
+                        .padding(vertical = 4.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                MiniZoomButton(AppIcons.ZoomIn, "ズームイン") {
+                    editor.zoomBy(1.25, Vec(editor.viewportW / 2.0, editor.viewportH / 2.0))
+                }
+                MiniZoomButton(AppIcons.Fit, "全体表示") { editor.fitToPage() }
+            }
+        }
+    }
 }
 
 @Composable
-private fun MenuRow(label: String, onClick: () -> Unit) {
-    Text(
-        label,
-        style = MaterialTheme.typography.bodyLarge,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-    )
+private fun MiniZoomButton(
+    icon: ImageVector,
+    desc: String,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(30.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = desc,
+            modifier = Modifier.size(16.dp),
+            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
+
+// ―――― ダイアログ ――――
 
 @Composable
 private fun NewDocumentDialog(onDismiss: () -> Unit, onCreate: (Double, Double) -> Unit) {

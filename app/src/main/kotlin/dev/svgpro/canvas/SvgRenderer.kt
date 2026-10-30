@@ -2,6 +2,7 @@ package dev.svgpro.canvas
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -32,30 +33,73 @@ class SvgRenderer {
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bitmapCache = HashMap<String, Bitmap?>()
 
-    fun draw(canvas: Canvas, editor: Editor) {
+    fun draw(canvas: Canvas, editor: Editor, overrideMatrix: Matrix? = null) {
         val trace = editor.trace
         for (item in trace.items) {
             if (!item.visible) continue
-            drawItem(canvas, editor, item)
+            drawItem(canvas, editor, item, overrideMatrix)
         }
     }
 
-    private fun drawItem(canvas: Canvas, editor: Editor, item: Trace.Item) {
+    private fun drawItem(canvas: Canvas, editor: Editor, item: Trace.Item, overrideMatrix: Matrix? = null) {
         val el = item.el
         val save = canvas.save()
         try {
-            val m = editor.viewMatrix.then(item.abs)
+            val m = (overrideMatrix ?: editor.viewMatrix).then(item.abs)
             canvas.concat(toAndroid(m))
             applyClip(canvas, editor, el, item)
-            when (el.tag) {
-                "g", "a" -> return@drawItem // 子は個別アイテムとして描画済み
-                "use" -> drawUse(canvas, editor, el, item)
-                "image" -> drawImage(canvas, el)
-                "text" -> drawText(canvas, el, item)
-                else -> drawShape(canvas, editor, el, item)
+            // mask属性: レイヤーを分けて内容を描画し、マスク内容（白図形）でDST_IN
+            val maskProp = StyleUtil.getProperty(el, "mask")
+            if (maskProp != null) {
+                val layer = canvas.saveLayer(null, null, Canvas.ALL_SAVE_FLAG)
+                drawItemContent(canvas, editor, item)
+                applyMask(canvas, editor, maskProp)
+                canvas.restoreToCount(layer)
+            } else {
+                drawItemContent(canvas, editor, item)
             }
         } finally {
             canvas.restoreToCount(save)
+        }
+    }
+
+    private fun drawItemContent(canvas: Canvas, editor: Editor, item: Trace.Item) {
+        val el = item.el
+        when (el.tag) {
+            "g", "a" -> return // 子は個別アイテムとして描画済み
+            "use" -> drawUse(canvas, editor, el, item)
+            "image" -> drawImage(canvas, el)
+            "text" -> drawText(canvas, editor, el, item)
+            else -> drawShape(canvas, editor, el, item)
+        }
+    }
+
+    /**
+     * 不透明マスクの簡易適用（輝度近似）:
+     * マスク内の白い図形の領域だけを表示する（黒背景は領域外扱い）。
+     * マスク内容の座標系は対象要素のローカル空間（生成時に焼き込み済み）。
+     */
+    private fun applyMask(canvas: Canvas, editor: Editor, maskProp: String) {
+        val match = Regex("url\\([\'\"]?#([^)\'\"\\s]+)[\'\"]?\\)").find(maskProp) ?: return
+        val maskEl = editor.doc.root.findById(match.groupValues[1]) ?: return
+        if (maskEl.tag != "mask") return
+        val xfer = Paint().apply {
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            color = 0xFFFFFFFF.toInt()
+        }
+        for (child in maskEl.childElements()) {
+            val fill = StyleUtil.getProperty(child, "fill") ?: continue
+            val color = dev.svgpro.core.model.Color.parse(fill) ?: continue
+            val alpha = (color ushr 24) and 0xFF
+            // 白系のみ表示領域として扱う（輝度近似: 黒=隠す、白=表示）
+            if (alpha == 0) continue
+            val r = (color shr 16) and 0xFF
+            val g = (color shr 8) and 0xFF
+            val b = color and 0xFF
+            if (r + g + b < 384) continue // 暗い色は領域外扱い
+            val geo = Shapes.geometryOf(child) ?: continue
+            xfer.alpha = alpha
+            canvas.drawPath(toAndroidPath(geo), xfer)
         }
     }
 
@@ -147,6 +191,9 @@ class SvgRenderer {
             val scale = 1f / positions.last()
             for (i in positions.indices) positions[i] *= scale
         }
+        if (def.tag == "pattern") {
+            return patternShader(def, item, editor)
+        }
         return when (def.tag) {
             "linearGradient" -> {
                 val (x1, y1, x2, y2) = if (userSpace) {
@@ -184,6 +231,65 @@ class SvgRenderer {
             }
             else -> null
         }
+    }
+
+    /**
+     * パターン塗り（userSpaceOnUse + patternTransform対応）。
+     * タイルをビットマップへ描画し、Repeatシェーダとして塗る。
+     */
+    private fun patternShader(def: Element, item: Trace.Item, editor: Editor): Shader? {
+        val n = dev.svgpro.core.util.Numbers
+        val pw = n.parse(StyleUtil.getProperty(def, "width")) ?: return null
+        val ph = n.parse(StyleUtil.getProperty(def, "height")) ?: return null
+        if (pw <= 0.0 || ph <= 0.0) return null
+        val px = n.parse(StyleUtil.getProperty(def, "x")) ?: 0.0
+        val py = n.parse(StyleUtil.getProperty(def, "y")) ?: 0.0
+        val contentUnits = StyleUtil.getProperty(def, "contentUnits")
+        if (contentUnits == "objectBoundingBox") return null // 未対応（保持のみ）
+        // 画面解像度に応じたタイルビットマップ
+        val scale = editor.zoom.coerceIn(0.05, 8.0)
+        val bmpW = (pw * scale).toInt().coerceIn(1, 2048)
+        val bmpH = (ph * scale).toInt().coerceIn(1, 2048)
+        val bmp = Bitmap.createBitmap(bmpW, bmpH, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.scale(bmpW.toFloat() / pw.toFloat(), bmpH.toFloat() / ph.toFloat())
+        c.translate((-px).toFloat(), (-py).toFloat())
+        // タイル内容の描画（簡易: 図形のみ）
+        val tileRenderer = Paint(Paint.ANTI_ALIAS_FLAG)
+        for (child in def.childElements()) {
+            val geo = Shapes.geometryOf(child) ?: continue
+            val childGeo = geo.clone()
+            childGeo.transform(Shapes.localTransform(child))
+            val fill = StyleUtil.getProperty(child, "fill") ?: "#000000"
+            val color = dev.svgpro.core.model.Color.parse(fill) ?: 0xFF000000.toInt()
+            tileRenderer.color = color
+            tileRenderer.style = Paint.Style.FILL
+            c.drawPath(toAndroidPath(childGeo), tileRenderer)
+        }
+        val shader = BitmapShader(bmp, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+        // user空間 → タイルピクセルの対応: p_tile = P⁻¹(p_user - origin) * (bmpW/pw)
+        val sx = bmpW.toDouble() / pw
+        val sy = bmpH.toDouble() / ph
+        val pt = Matrix.fromSvgTransform(StyleUtil.getProperty(def, "patternTransform") ?: "")
+        val inv = if (pt.isIdentity()) Matrix.IDENTITY else pt.invert()
+        val m = Matrix(
+            a = sx, b = 0.0, c = 0.0, d = sy,
+            e = -px * sx, f = -py * sy,
+        )
+        // pixel = S · P⁻¹ · (p - origin): m = translate(-origin)·S を先に、P⁻¹を後に適用
+        val combined = inv.then(m)
+        shader.setLocalMatrix(
+            android.graphics.Matrix().apply {
+                setValues(
+                    floatArrayOf(
+                        combined.a.toFloat(), combined.c.toFloat(), combined.e.toFloat(),
+                        combined.b.toFloat(), combined.d.toFloat(), combined.f.toFloat(),
+                        0f, 0f, 1f,
+                    ),
+                )
+            },
+        )
+        return shader
     }
 
     private fun gradientStops(def: Element, editor: Editor, opacity: Double): List<Pair<Int, Double>> {
@@ -226,7 +332,13 @@ class SvgRenderer {
         return DashPathEffect(list.map { it.toFloat().coerceAtLeast(0.1f) }.toFloatArray(), 0f)
     }
 
-    private fun drawText(canvas: Canvas, el: Element, item: Trace.Item) {
+    private fun drawText(canvas: Canvas, editor: Editor, el: Element, item: Trace.Item) {
+        // textPath（パスに沿ったテキスト）: 標準構造を解決して近似描画
+        val tp = el.childElements().firstOrNull { it.tag == "textPath" }
+        if (tp != null) {
+            drawTextOnPath(canvas, editor, el, tp, item)
+            return
+        }
         val content = el.textContent()
         if (content.isEmpty()) return
         val x = (dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0).toFloat()
@@ -265,6 +377,56 @@ class SvgRenderer {
         return if (bold || italic) {
             android.graphics.Typeface.create(base, (if (bold) android.graphics.Typeface.BOLD else 0) or (if (italic) android.graphics.Typeface.ITALIC else 0))
         } else base
+    }
+
+    /**
+     * textPathの近似描画: 参照パスをフラット化し、文字を接線方向に沿って配置する。
+     * （外部ビューアではtextPath構造がそのまま使われるため、表示の近似は編集補助）
+     */
+    private fun drawTextOnPath(canvas: Canvas, editor: Editor, el: Element, tp: Element, item: Trace.Item) {
+        val content = tp.textContent().ifEmpty { el.textContent() }
+        if (content.isEmpty()) return
+        val href = StyleUtil.href(tp) ?: return
+        val pathEl = editor.doc.root.findById(href.removePrefix("#")) ?: return
+        val geo = editor.trace.itemOf(pathEl)?.geometry ?: Shapes.geometryOf(pathEl) ?: return
+        val pts = geo.flatten(0.1)
+        if (pts.size < 2) return
+        // 累積長
+        val cum = DoubleArray(pts.size)
+        for (i in 1 until pts.size) cum[i] = cum[i - 1] + pts[i].distanceTo(pts[i - 1])
+        val total = cum.last()
+        if (total <= 0.0) return
+        val fontSize = (dev.svgpro.core.util.Numbers.parse(StyleUtil.getProperty(el, "font-size")) ?: 16.0).toFloat()
+        textPaint.textSize = fontSize
+        textPaint.typeface = typeface(el)
+        val color = dev.svgpro.core.model.Color.parse(StyleUtil.getProperty(el, "fill")) ?: Color.BLACK
+        textPaint.color = color
+        textPaint.textAlign = Paint.Align.LEFT
+        val startOffset = (dev.svgpro.core.util.Numbers.parse(StyleUtil.getProperty(tp, "startOffset")) ?: 0.0)
+        val startLen = if (StyleUtil.getProperty(tp, "startOffset")?.contains("%") == true) total * startOffset / 100.0 else startOffset
+        var s = startLen
+        for (ch in content) {
+            val w = textPaint.measureText(ch.toString())
+            val mid = s + w / 2
+            if (mid > total) break
+            // 位置と接線
+            var i = cum.binarySearch(mid)
+            if (i < 0) i = -(i + 1)
+            i = i.coerceIn(1, pts.size - 1)
+            val a = pts[i - 1]
+            val b = pts[i]
+            val span = cum[i] - cum[i - 1]
+            val t = if (span <= 0.0) 0.0 else (mid - cum[i - 1]) / span
+            val px = a.x + (b.x - a.x) * t
+            val py = a.y + (b.y - a.y) * t
+            val angle = Math.toDegrees(kotlin.math.atan2(b.y - a.y, b.x - a.x))
+            canvas.save()
+            canvas.translate(px.toFloat(), py.toFloat())
+            canvas.rotate(angle.toFloat())
+            canvas.drawText(ch.toString(), -w / 2, 0f, textPaint)
+            canvas.restore()
+            s += w
+        }
     }
 
     private fun drawImage(canvas: Canvas, el: Element) {
@@ -307,15 +469,42 @@ class SvgRenderer {
         val save = canvas.save()
         try {
             canvas.translate(dx.toFloat(), dy.toFloat())
+            if (target.tag == "symbol") {
+                // シンボル: 子要素を順に描画
+                drawSymbolContent(canvas, editor, target, item)
+                return
+            }
             val geo = Shapes.geometryOf(target)
             if (geo != null) {
                 val pseudoItem = item.copy(el = target, geometry = geo)
                 drawShape(canvas, editor, target, pseudoItem)
             } else if (target.tag == "text") {
-                drawText(canvas, target, item)
+                drawText(canvas, editor, target, item)
             }
         } finally {
             canvas.restoreToCount(save)
+        }
+    }
+
+    /** symbol内容の描画（ネストしたgにも対応） */
+    private fun drawSymbolContent(canvas: Canvas, editor: Editor, container: Element, item: Trace.Item) {
+        for (child in container.childElements()) {
+            val save = canvas.save()
+            try {
+                canvas.concat(toAndroid(Shapes.localTransform(child)))
+                val geo = Shapes.geometryOf(child)
+                if (geo != null) {
+                    val pseudoItem = item.copy(el = child, geometry = geo)
+                    drawShape(canvas, editor, child, pseudoItem)
+                } else when (child.tag) {
+                    "text" -> drawText(canvas, editor, child, item)
+                    "g", "a" -> drawSymbolContent(canvas, editor, child, item)
+                    "use" -> drawUse(canvas, editor, child, item)
+                    else -> {}
+                }
+            } finally {
+                canvas.restoreToCount(save)
+            }
         }
     }
 

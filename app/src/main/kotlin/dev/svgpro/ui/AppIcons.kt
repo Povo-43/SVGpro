@@ -30,7 +30,7 @@ object AppIcons {
         ).apply {
             addPath(
                 androidx.compose.ui.graphics.vector.addPathNodes(path),
-                stroke = SolidColor(Color(0xFFE6EAF0)),
+                stroke = SolidColor(Color(0xFFE8E8E8)),
                 strokeLineWidth = stroke,
                 strokeLineCap = StrokeCap.Round,
                 strokeLineJoin = StrokeJoin.Round,
@@ -38,7 +38,7 @@ object AppIcons {
             )
         }.build()
 
-    private fun filledIcon(name: String, path: String, colorHex: Long = 0xFFE6EAF0): ImageVector =
+    private fun filledIcon(name: String, path: String, colorHex: Long = 0xFFE8E8E8): ImageVector =
         ImageVector.Builder(
             name = name,
             defaultWidth = 24.dp,
@@ -64,17 +64,17 @@ object AppIcons {
     ).apply {
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M4,18 C8,8 16,8 20,18"),
-            stroke = SolidColor(Color(0xFFE6EAF0)),
+            stroke = SolidColor(Color(0xFFE8E8E8)),
             strokeLineWidth = 1.6f,
             fill = null,
         )
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M4,18 m-2.4,0 a2.4,2.4 0 1 0 4.8,0 a2.4,2.4 0 1 0 -4.8,0"),
-            fill = SolidColor(Color(0xFF42A5F5)),
+            fill = SolidColor(Color(0xFF1473E6)),
         )
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M20,18 m-2.4,0 a2.4,2.4 0 1 0 4.8,0 a2.4,2.4 0 1 0 -4.8,0"),
-            fill = SolidColor(Color(0xFF42A5F5)),
+            fill = SolidColor(Color(0xFF1473E6)),
         )
     }.build()
 
@@ -97,7 +97,89 @@ object AppIcons {
     val Star: ImageVector = icon("Star", "M12,3 L14.5,9 L21,9.7 L16,14 L17.5,20.5 L12,17 L6.5,20.5 L8,14 L3,9.7 L9.5,9 Z")
     val Polyline: ImageVector = icon("Polyline", "M3,17 L9,9 L14,14 L21,5")
 
+    // ―― トグル用アイコン ――
+    val Magnet: ImageVector = icon(
+        "Magnet",
+        "M7,3 L7,10.5 C7,13.5 9.2,16 12,16 C14.8,16 17,13.5 17,10.5 L17,3 M7,3 L10.4,3 L10.4,10.5 M13.6,10.5 L13.6,3 L17,3 M7,6.5 L10.4,6.5 M13.6,6.5 L17,6.5",
+        stroke = 1.5f,
+    )
+    val PenOnly: ImageVector = ImageVector.Builder(
+        name = "PenOnly",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        addPath(
+            androidx.compose.ui.graphics.vector.addPathNodes("M8,19.5 L9.6,14.8 L16,8.4 C17,7.4 18.6,7.4 19.6,8.4 C20.6,9.4 20.6,11 19.6,12 L13.2,18.4 L8.5,20 Z"),
+            stroke = SolidColor(Color(0xFFE8E8E8)),
+            strokeLineWidth = 1.6f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            fill = null,
+        )
+        // 指の除外を示すスラッシュ
+        addPath(
+            androidx.compose.ui.graphics.vector.addPathNodes("M4,3 L8,7"),
+            stroke = SolidColor(Color(0xFFE8E8E8)),
+            strokeLineWidth = 1.6f,
+            strokeLineCap = StrokeCap.Round,
+            fill = null,
+        )
+    }.build()
+    val ZoomIn: ImageVector = icon(
+        "ZoomIn",
+        "M10.5,4 C13.8,4 17,7.1 17,10.5 C17,13.9 13.8,17 10.5,17 C7.2,17 4,13.9 4,10.5 C4,7.1 7.2,4 10.5,4 Z M15.4,15.4 L20,20 M10.5,7.5 L10.5,13.5 M7.5,10.5 L13.5,10.5",
+    )
+    val ZoomOut: ImageVector = icon(
+        "ZoomOut",
+        "M10.5,4 C13.8,4 17,7.1 17,10.5 C17,13.9 13.8,17 10.5,17 C7.2,17 4,13.9 4,10.5 C4,7.1 7.2,4 10.5,4 Z M15.4,15.4 L20,20 M7.5,10.5 L13.5,10.5",
+    )
+
+    // ―― 整列アイコン ――
+    val AlignLeft: ImageVector = icon("AlignLeft", "M5,4 L5,20 M9,7 L19,7 L19,10.5 L9,10.5 Z M9,13.5 L15,13.5 L15,17 L9,17 Z", stroke = 1.4f)
+    val AlignCenterH: ImageVector = icon("AlignCenterH", "M12,4 L12,20 M7,7 L17,7 L17,10.5 L7,10.5 Z M9,13.5 L15,13.5 L15,17 L9,17 Z", stroke = 1.4f)
+    val AlignRight: ImageVector = icon("AlignRight", "M19,4 L19,20 M5,7 L15,7 L15,10.5 L5,10.5 Z M9,13.5 L15,13.5 L15,17 L9,17 Z", stroke = 1.4f)
+    val AlignTop: ImageVector = icon("AlignTop", "M4,5 L20,5 M7,9 L10.5,9 L10.5,19 L7,19 Z M13.5,9 L17,9 L17,15 L13.5,15 Z", stroke = 1.4f)
+    val AlignCenterV: ImageVector = icon("AlignCenterV", "M4,12 L20,12 M7,7 L10.5,7 L10.5,17 L7,17 Z M13.5,9 L17,9 L17,15 L13.5,15 Z", stroke = 1.4f)
+    val AlignBottom: ImageVector = icon("AlignBottom", "M4,19 L20,19 M7,5 L10.5,5 L10.5,15 L7,15 Z M13.5,9 L17,9 L17,15 L13.5,15 Z", stroke = 1.4f)
+    val DistH: ImageVector = icon("DistH", "M4,7 L8,7 L8,17 L4,17 Z M10,7 L14,7 L14,17 L10,17 Z M16,7 L20,7 L20,17 L16,17 Z", stroke = 1.4f)
+    val DistV: ImageVector = icon("DistV", "M7,4 L17,4 L17,8 L7,8 Z M7,10 L17,10 L17,14 L7,14 Z M7,16 L17,16 L17,20 L7,20 Z", stroke = 1.4f)
+
+    val Ruler: ImageVector = icon(
+        "Ruler",
+        "M4,4 L20,4 M4,4 L4,20 M8,4 L8,9 M4,8 L9,8 M12,4 L12,7 M4,12 L7,12 M16,4 L16,7 M4,16 L7,16 M12,16 L16,16 L16,20 L12,20 Z",
+        stroke = 1.4f,
+    )
+
+    /** グラデーションツール（階調バー） */    val GradientTool: ImageVector = ImageVector.Builder(
+        name = "GradientTool",
+        defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        fun band(x1: Float, x2: Float, alpha: Long) {
+            addPath(
+                androidx.compose.ui.graphics.vector.addPathNodes("M$x1,5 L$x2,5 L$x2,19 L$x1,19 Z"),
+                fill = SolidColor(Color(alpha shl 24 or 0x00E8E8E8)),
+            )
+        }
+        band(4f, 8f, 0xFF)
+        band(8f, 12f, 0xB4)
+        band(12f, 16f, 0x6E)
+        band(16f, 20f, 0x2E)
+        addPath(
+            androidx.compose.ui.graphics.vector.addPathNodes("M4,5 L20,5 L20,19 L4,19 Z"),
+            stroke = SolidColor(Color(0xFFE8E8E8)),
+            strokeLineWidth = 1.4f,
+            fill = null,
+        )
+    }.build()
+
     val TextTool: ImageVector = icon("TextTool", "M5,6 L19,6 M12,6 L12,19 M8,19 L16,19")
+
+    val Gradient: ImageVector = icon(
+        "Gradient",
+        "M4,4 L20,4 L20,20 L4,20 Z M4,4 L20,20 M7,4 L7,7 M11,4 L11,8 M15,4 L15,10 M4,17 L7,17 M4,13 L8,13 M4,9 L9,9",
+        stroke = 1.4f,
+    )
 
     val Hand: ImageVector = icon(
         "Hand",
@@ -158,19 +240,19 @@ object AppIcons {
     ).apply {
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M4,4 L14,4 L14,14 L4,14 Z"),
-            stroke = SolidColor(Color(0x88E6EAF0)),
+            stroke = SolidColor(Color(0x88E8E8E8)),
             strokeLineWidth = 1.4f,
             fill = null,
         )
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M10,10 L20,10 L20,20 L10,20 Z"),
-            stroke = SolidColor(Color(0x88E6EAF0)),
+            stroke = SolidColor(Color(0x88E8E8E8)),
             strokeLineWidth = 1.4f,
             fill = null,
         )
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M10,10 L14,10 L14,14 L10,14 Z"),
-            fill = SolidColor(Color(0xFFE6EAF0)),
+            fill = SolidColor(Color(0xFFE8E8E8)),
         )
     }.build()
     val Xor: ImageVector = ImageVector.Builder(
@@ -180,19 +262,19 @@ object AppIcons {
     ).apply {
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M4,4 L14,4 L14,14 L4,14 Z"),
-            stroke = SolidColor(Color(0x88E6EAF0)),
+            stroke = SolidColor(Color(0x88E8E8E8)),
             strokeLineWidth = 1.4f,
             fill = null,
         )
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M10,10 L20,10 L20,20 L10,20 Z"),
-            stroke = SolidColor(Color(0x88E6EAF0)),
+            stroke = SolidColor(Color(0x88E8E8E8)),
             strokeLineWidth = 1.4f,
             fill = null,
         )
         addPath(
             androidx.compose.ui.graphics.vector.addPathNodes("M4,4 L14,4 L14,10 L10,10 L10,14 L4,14 Z M14,14 L20,14 L20,20 L10,20 L10,14 L14,14 Z"),
-            fill = SolidColor(Color(0xFFE6EAF0)),
+            fill = SolidColor(Color(0xFFE8E8E8)),
         )
     }.build()
 }

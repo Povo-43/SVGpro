@@ -92,7 +92,7 @@ class SvgDocument(val root: Element) {
     /** 編集対象になり得る要素（選択ヒットの対象） */
     fun isSelectableShape(el: Element): Boolean = when (el.tag) {
         in SHAPE_TAGS -> true
-        "text", "image" -> true
+        "text", "image", "use" -> true
         else -> false
     }
 

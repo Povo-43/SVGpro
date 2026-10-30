@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Illustrator風ダークテーマ (#1E1E1E 系) -->
     <style name="Theme.SVGpro" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#FF101418</item>
-        <item name="android:statusBarColor">#FF101418</item>
-        <item name="android:navigationBarColor">#FF101418</item>
+        <item name="android:windowBackground">#FF1E1E1E</item>
+        <item name="android:statusBarColor">#FF1E1E1E</item>
+        <item name="android:navigationBarColor">#FF1E1E1E</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

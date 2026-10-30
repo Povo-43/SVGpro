@@ -5,6 +5,11 @@ import android.net.Uri
 import android.graphics.Typeface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import dev.svgpro.core.svg.SvgLoader
 import dev.svgpro.core.geom.Bounds
 import dev.svgpro.core.model.SvgDocument
 import dev.svgpro.core.path.PathData
@@ -15,12 +20,19 @@ import dev.svgpro.editor.TextMetrics
 
 /**
  * 編集セッションの状態保持（回転・プロセス維持でドキュメントを失わない）。
+ * さらに、自動バックアップ（クラッシュ復元用）を定期保存する。
  */
 class EditorViewModel : ViewModel() {
 
     val editor = Editor()
 
     var currentUri: Uri? = null
+
+    /** 復元可能なバックアップの有無（起動時に確認） */
+    var hasBackup: Boolean = false
+        private set
+
+    private var backupJob: kotlinx.coroutines.Job? = null
 
     init {
         // テキスト測定（ヒットテスト/選択枠用）
@@ -29,6 +41,60 @@ class EditorViewModel : ViewModel() {
         }
         editor.textToPathProvider = { el ->
             textToPathData(el)
+        }
+    }
+
+    /** 自動バックアップ開始（30秒間隔・未保存の編集がある場合のみ） */
+    fun startAutosave(context: android.content.Context) {
+        if (backupJob != null) return
+        val dir = java.io.File(context.cacheDir, "backup").apply { mkdirs() }
+        val file = java.io.File(dir, "autosave.svg")
+        hasBackup = file.exists() && file.length() > 0
+        backupJob = viewModelScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                kotlinx.coroutines.delay(30_000)
+                try {
+                    if (editor.dirty) {
+                        file.writeText(editor.doc.serialize())
+                        hasBackup = true
+                    }
+                } catch (e: Exception) {
+                    // バックアップ失敗は編集に影響させない
+                }
+            }
+        }
+    }
+
+    /** クラッシュ後の復元 */
+    fun restoreBackup(context: android.content.Context): Boolean {
+        val file = java.io.File(context.cacheDir, "backup/autosave.svg")
+        if (!file.exists()) return false
+        return try {
+            val text = file.readText()
+            val doc = dev.svgpro.core.svg.SvgLoader.load({ tokenSourceOf(text) }, text)
+            if (doc != null) {
+                editor.loadDocument(doc, "restored.svg")
+                true
+            } else false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun tokenSourceOf(xml: String): dev.svgpro.core.svg.TokenSource {
+        val queue = ArrayDeque(dev.svgpro.AndroidTokenSource.tokenQueue(xml))
+        return object : dev.svgpro.core.svg.TokenSource {
+            override fun next(): dev.svgpro.core.svg.Token =
+                queue.removeFirstOrNull() ?: dev.svgpro.core.svg.Token.EndDocument
+        }
+    }
+
+    /** バックアップを破棄（保存完了時など） */
+    fun clearBackup(context: android.content.Context) {
+        try {
+            java.io.File(context.cacheDir, "backup/autosave.svg").delete()
+            hasBackup = false
+        } catch (e: Exception) {
         }
     }
 
