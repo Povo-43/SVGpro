@@ -20,11 +20,11 @@ Androidタブレット／スマートフォンで動作する、ネイティブ�
 
 # デバッグAPK
 ./gradlew :app:assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
+# → app/build/outputs/apk/debug/SVGpro-debug.apk
 
 # リリースAPK（CI配布用にdebug鍵で署名）
 ./gradlew :app:assembleRelease
-# → app/build/outputs/apk/release/app-release.apk
+# → app/build/outputs/apk/release/SVGpro-release.apk
 ```
 
 `local.properties` に `sdk.dir=<Android SDKのパス>` を設定してください（CIでは不要）。
@@ -32,7 +32,7 @@ Androidタブレット／スマートフォンで動作する、ネイティブ�
 ### GitHub Actions
 
 `.github/workflows/android.yml` により、push / PRでテスト＋APKビルドが実行され、
-Artifactとして `svgpro-debug` / `svgpro-release` がアップロードされます。
+Artifactとして `SVGpro-debug` / `SVGpro-release` がアップロードされます。
 `v*` タグをpushするとGitHub ReleaseにAPKが添付されます。
 
 ```

@@ -12,8 +12,17 @@ android {
         applicationId = "dev.svgpro.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
+    }
+
+    // APKファイル名をSVGproに統一（SVGpro-debug.apk / SVGpro-release.apk）
+    applicationVariants.all {
+        val variantName = this.name
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.BaseVariantOutputImpl
+            output.outputFileName = "SVGpro-$variantName.apk"
+        }
     }
 
     buildTypes {

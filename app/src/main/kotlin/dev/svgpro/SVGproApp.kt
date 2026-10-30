@@ -15,7 +15,7 @@ object AppContextHolder {
     fun get(): Context? = appContext
 }
 
-class SvgproApp : Application() {
+class SVGproApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppContextHolder.init(this)
