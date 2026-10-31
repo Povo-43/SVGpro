@@ -1,5 +1,8 @@
 package dev.svgpro.editor
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import dev.svgpro.core.edit.Attach
 import dev.svgpro.core.edit.AttrChange
 import dev.svgpro.core.edit.ChangeSet
@@ -279,7 +282,13 @@ class Editor {
         private set
 
     val undoStack = UndoStack()
-    var dirty = false
+
+    /**
+     * UIから直接読まれるフラグはSnapshot Stateで保持する。
+     * Composeが読み取りを購読するため、refreshカウンタの伝播に頼らず
+     * strong skipping下でも確実に再構成される（ツールハイライト・トグル・dirty表示）。
+     */
+    var dirty by mutableStateOf(false)
         private set
 
     var documentName: String = "untitled.svg"
@@ -303,10 +312,13 @@ class Editor {
     var viewportH = 0.0
 
     // ―――― ツール/ドラフト状態 ――――
-    var tool: ToolType = ToolType.SELECT
+    private val toolState = mutableStateOf(ToolType.SELECT)
+
+    var tool: ToolType
+        get() = toolState.value
         set(value) {
-            val old = field
-            field = value
+            val old = toolState.value
+            toolState.value = value
             if (old == ToolType.PEN && penDraft != null) {
                 // ペン作成中にツールを切り替えた場合は開いたまま確定する
                 commitPenDraft(close = false)
@@ -364,11 +376,11 @@ class Editor {
 
     // ―――― 設定 ――――
     var gridSize = 10.0
-    var showGrid = false
-    var showRulers = false
-    var snapToGrid = false
+    var showGrid by mutableStateOf(false)
+    var showRulers by mutableStateOf(false)
+    var snapToGrid by mutableStateOf(false)
     var snapToObject = true
-    var penOnly = false // スタイラスのみで作図（指はパン/ズーム）
+    var penOnly by mutableStateOf(false) // スタイラスのみで作図（指はパン/ズーム）。UIトグルから読まれる
     var usePressure = true
 
     // ―――― スナップ詳細設定 ――――

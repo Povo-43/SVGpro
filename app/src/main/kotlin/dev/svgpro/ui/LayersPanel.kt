@@ -25,15 +25,15 @@ fun LayersPanel(editor: Editor, refresh: Int) {
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("レイヤー / オブジェクト", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Spacer(Modifier.weight(1f))
             IconButton(onClick = {
                 val n = editor.doc.root.childElements().count { it.tag == "g" } + 1
                 editor.createLayer("Layer $n")
-            }) {
-                Icon(AppIcons.Plus, contentDescription = "レイヤー追加", tint = MaterialTheme.colorScheme.onSurface)
+            }, modifier = Modifier.size(UiMetrics.MiniButton)) {
+                Icon(AppIcons.Plus, contentDescription = "レイヤー追加", modifier = Modifier.size(UiMetrics.Icon), tint = MaterialTheme.colorScheme.onSurface)
             }
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
@@ -51,7 +51,7 @@ fun LayersPanel(editor: Editor, refresh: Int) {
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
         Row(
-            Modifier.fillMaxWidth().padding(4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             PanelIconButton(AppIcons.Up, "前面へ") { editor.reorderSelection(front = true, absolute = false) }
@@ -78,8 +78,8 @@ fun LayersPanel(editor: Editor, refresh: Int) {
 
 @Composable
 fun PanelIconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(38.dp)) {
-        Icon(icon, contentDescription = desc, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface)
+    IconButton(onClick = onClick, modifier = Modifier.size(UiMetrics.BarButton)) {
+        Icon(icon, contentDescription = desc, modifier = Modifier.size(UiMetrics.Icon), tint = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -111,7 +111,7 @@ fun ObjectRow(editor: Editor, row: TreeRow, onRename: () -> Unit) {
         },
     ) {
         Row(
-            Modifier.padding(start = (8 + row.depth * 14).dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            Modifier.padding(start = (6 + row.depth * 12).dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -125,18 +125,18 @@ fun ObjectRow(editor: Editor, row: TreeRow, onRename: () -> Unit) {
                 if (hidden) AppIcons.EyeClosed else AppIcons.EyeOpen,
                 contentDescription = if (hidden) "表示" else "非表示",
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(30.dp)
                     .clickable { editor.setHidden(el, !hidden) }
-                    .padding(7.dp),
+                    .padding(6.dp),
                 tint = if (hidden) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
             )
             Icon(
                 if (locked) AppIcons.LockIcon else AppIcons.UnlockIcon,
                 contentDescription = if (locked) "ロック解除" else "ロック",
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(30.dp)
                     .clickable { editor.setLocked(el, !locked) }
-                    .padding(7.dp),
+                    .padding(6.dp),
                 tint = if (locked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

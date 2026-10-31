@@ -133,6 +133,38 @@ private val AppShapes = androidx.compose.material3.Shapes(
     extraLarge = RoundedCornerShape(16.dp),
 )
 
+/**
+ * 共通UI密度メトリクス。
+ * バー・ツールレール・パネル・ステータスバーで同じ寸法語彙を共有し、
+ * タイトで統一感のあるツールUIを保つ（4dpグリッド準拠）。
+ */
+object UiMetrics {
+    /** 上部バーの高さ */
+    val BarHeight = 42.dp
+    /** バー・パネル共通のアイコンボタン一辺 */
+    val BarButton = 34.dp
+    /** ツールレールのボタン一辺（主要操作のためバー地より大きめ） */
+    val ToolButton = 36.dp
+    /** 補助ボタン（ステータスバー・パネルヘッダー）の一辺 */
+    val MiniButton = 28.dp
+    /** パネルヘッダーの高さ */
+    val PanelHeader = 30.dp
+    /** 展開時の右ドックパネル幅 */
+    val SidePanelWidth = 272.dp
+    /** ツールレール幅（縦置き） */
+    val RailWidth = 44.dp
+    /** 標準アイコン */
+    val Icon = 18.dp
+    /** 補助アイコン */
+    val IconSmall = 15.dp
+    /** 小型コントロールの角丸 */
+    val CornerSmall = 5.dp
+    /** バー系コントロールの角丸 */
+    val Corner = 6.dp
+    /** レール内区切り線の長さ */
+    val RailDivider = 16.dp
+}
+
 @Composable
 fun SVGproTheme(content: @Composable () -> Unit) {
     // ダークテーマを基本とし、ライトもサポート

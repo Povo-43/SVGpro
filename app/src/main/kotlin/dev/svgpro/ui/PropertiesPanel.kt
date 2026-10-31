@@ -84,8 +84,8 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
     val isPath = sel.any { dev.svgpro.core.path.PathData.parse(it.attr("d")) != null || dev.svgpro.core.model.Shapes.isPrimitive(it) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // ―――― 塗り ――――
         SectionTitle("塗り")
@@ -590,10 +590,10 @@ private fun SectionTitle(text: String) {
 private fun CompactButton(label: String, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(UiMetrics.CornerSmall))
             .background(if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
         Text(
             label,
@@ -608,12 +608,12 @@ private fun CompactButton(label: String, filled: Boolean = false, onClick: () ->
 private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(7.dp))
+            .size(UiMetrics.BarButton)
+            .clip(RoundedCornerShape(UiMetrics.Corner))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = desc, modifier = Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurface)
+        Icon(icon, contentDescription = desc, modifier = Modifier.size(UiMetrics.Icon), tint = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -626,7 +626,7 @@ private fun Swatch(paint: Paint?) {
     }
     Box(
         Modifier
-            .size(26.dp)
+            .size(24.dp)
             .clip(CircleShape)
             .background(
                 if (paint is Paint.Server) {

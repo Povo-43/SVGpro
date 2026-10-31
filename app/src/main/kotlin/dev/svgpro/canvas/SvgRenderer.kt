@@ -45,7 +45,10 @@ class SvgRenderer {
         val el = item.el
         val save = canvas.save()
         try {
-            val m = (overrideMatrix ?: editor.viewMatrix).then(item.abs)
+            // 合成順: ローカル→user空間のCTM(item.abs)を先に適用し、その後 user→画面
+            // (viewMatrix / overrideMatrix)を適用する。逆順だとtransform属性が画面空間で
+            // 解釈され、選択ボックス(=abs基準のbounds)と描画がずれる。
+            val m = item.abs.then(overrideMatrix ?: editor.viewMatrix)
             canvas.concat(toAndroid(m))
             applyClip(canvas, editor, el, item)
             // mask属性: レイヤーを分けて内容を描画し、マスク内容（白図形）でDST_IN

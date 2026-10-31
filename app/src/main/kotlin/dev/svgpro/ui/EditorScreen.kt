@@ -203,33 +203,33 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     // ペン作成中の確定/取消（フローティングバー）
                     if (penDraftActive) {
                         Surface(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 6.dp,
-                            shadowElevation = 8.dp,
-                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+                            tonalElevation = 4.dp,
+                            shadowElevation = 6.dp,
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
                         ) {
                             Row(
-                                Modifier.padding(6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                Modifier.padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Button(
                                     onClick = { editor.commitPenDraft(true) },
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 ) {
-                                    Icon(AppIcons.Check, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("閉じて確定", style = MaterialTheme.typography.labelLarge)
+                                    Icon(AppIcons.Check, null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("閉じて確定", style = MaterialTheme.typography.labelMedium)
                                 }
                                 FilledTonalButton(
                                     onClick = { editor.commitPenDraft(false) },
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 ) {
-                                    Text("確定", style = MaterialTheme.typography.labelLarge)
+                                    Text("確定", style = MaterialTheme.typography.labelMedium)
                                 }
                                 TextButton(onClick = { editor.cancelPenDraft() }) {
-                                    Text("取消", style = MaterialTheme.typography.labelLarge)
+                                    Text("取消", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
@@ -437,21 +437,21 @@ private fun TopBar(
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column {
         Row(
-            Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 6.dp),
+            Modifier.fillMaxWidth().height(UiMetrics.BarHeight).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // ブランドバッジ（IllustratorのAiバッジ相当）
             Box(
                 Modifier
-                    .padding(start = 4.dp, end = 2.dp)
-                    .size(26.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .padding(start = 2.dp)
+                    .size(22.dp)
+                    .clip(RoundedCornerShape(UiMetrics.CornerSmall))
                     .background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     "S",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
@@ -542,8 +542,8 @@ private fun BarIconButton(
     )
     Box(
         Modifier
-            .size(38.dp)
-            .clip(RoundedCornerShape(7.dp))
+            .size(UiMetrics.BarButton)
+            .clip(RoundedCornerShape(UiMetrics.Corner))
             .background(bg)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -551,7 +551,7 @@ private fun BarIconButton(
         Icon(
             icon,
             contentDescription = desc,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(UiMetrics.Icon),
             tint = when {
                 !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                 active -> MaterialTheme.colorScheme.primary
@@ -565,9 +565,9 @@ private fun BarIconButton(
 private fun BarDivider() {
     Box(
         Modifier
-            .padding(horizontal = 4.dp)
+            .padding(horizontal = 3.dp)
             .width(1.dp)
-            .height(20.dp)
+            .height(16.dp)
             .background(MaterialTheme.colorScheme.outlineVariant),
     )
 }
@@ -624,7 +624,7 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         if (vertical) {
             Column(
-                Modifier.width(48.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 6.dp),
+                Modifier.width(UiMetrics.RailWidth).fillMaxHeight().verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 toolGroups.forEachIndexed { gi, group ->
@@ -644,7 +644,7 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
             }
         } else {
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 toolGroups.forEachIndexed { gi, group ->
@@ -670,8 +670,11 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
 private fun RailSeparator(vertical: Boolean) {
     Box(
         Modifier
-            .padding(vertical = if (vertical) 4.dp else 0.dp, horizontal = if (vertical) 0.dp else 4.dp)
-            .then(if (vertical) Modifier.width(22.dp).height(1.dp) else Modifier.width(1.dp).height(22.dp))
+            .padding(vertical = if (vertical) 2.dp else 0.dp, horizontal = if (vertical) 0.dp else 2.dp)
+            .then(
+                if (vertical) Modifier.width(UiMetrics.RailDivider).height(1.dp)
+                else Modifier.width(1.dp).height(UiMetrics.RailDivider)
+            )
             .background(MaterialTheme.colorScheme.outlineVariant),
     )
 }
@@ -686,8 +689,8 @@ private fun ToolButton(editor: Editor, refresh: Int, tool: ToolType, icon: Image
     )
     Box(
         Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(7.dp))
+            .size(UiMetrics.ToolButton)
+            .clip(RoundedCornerShape(UiMetrics.Corner))
             .background(bg)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -695,7 +698,7 @@ private fun ToolButton(editor: Editor, refresh: Int, tool: ToolType, icon: Image
         Icon(
             icon,
             contentDescription = toolLabel(tool),
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(UiMetrics.Icon),
             tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         )
     }
@@ -711,8 +714,8 @@ private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh
     )
     Box(
         Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(7.dp))
+            .size(UiMetrics.ToolButton)
+            .clip(RoundedCornerShape(UiMetrics.Corner))
             .background(bg)
             .clickable(onClick = onToggle),
         contentAlignment = Alignment.Center,
@@ -720,7 +723,7 @@ private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh
         Icon(
             icon,
             contentDescription = desc,
-            modifier = Modifier.size(19.dp),
+            modifier = Modifier.size(17.dp),
             tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -744,11 +747,11 @@ private fun SidePanel(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.width(300.dp).fillMaxHeight(),
+        modifier = Modifier.width(UiMetrics.SidePanelWidth).fillMaxHeight(),
     ) {
         Column {
             Row(
-                Modifier.fillMaxWidth().height(38.dp).padding(start = 14.dp),
+                Modifier.fillMaxWidth().height(UiMetrics.PanelHeader).padding(start = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -757,8 +760,8 @@ private fun SidePanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
-                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(16.dp))
+                IconButton(onClick = onClose, modifier = Modifier.size(UiMetrics.MiniButton)) {
+                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(14.dp))
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -783,24 +786,24 @@ private fun SheetPanel(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
         tonalElevation = 4.dp,
-        shadowElevation = 10.dp,
+        shadowElevation = 8.dp,
         modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight),
     ) {
         Column {
             // ハンドル + ヘッダー
-            Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().padding(top = 5.dp), contentAlignment = Alignment.Center) {
                 Box(
                     Modifier
-                        .width(36.dp)
-                        .height(4.dp)
+                        .width(32.dp)
+                        .height(3.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.outlineVariant),
                 )
             }
             Row(
-                Modifier.fillMaxWidth().padding(start = 14.dp),
+                Modifier.fillMaxWidth().height(UiMetrics.PanelHeader).padding(start = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -809,11 +812,11 @@ private fun SheetPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onClose, modifier = Modifier.size(34.dp)) {
-                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(16.dp))
+                IconButton(onClick = onClose, modifier = Modifier.size(UiMetrics.MiniButton)) {
+                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(14.dp))
                 }
             }
-            Box(Modifier.heightIn(max = maxHeight - 60.dp)) {
+            Box(Modifier.heightIn(max = maxHeight - 44.dp)) {
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
                     else -> PropertiesPanel(editor, refresh)
@@ -832,9 +835,9 @@ private fun StatusBar(editor: Editor, refresh: Int) {
         Column {
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val vb = editor.doc.viewBox
             Text(
@@ -893,10 +896,10 @@ private fun StatusBar(editor: Editor, refresh: Int) {
                     "${(editor.zoom * 100).toInt()}%",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier
-                        .widthIn(min = 44.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .widthIn(min = 40.dp)
+                        .clip(RoundedCornerShape(UiMetrics.CornerSmall))
                         .clickable { editor.zoomTo100() }
-                        .padding(vertical = 4.dp),
+                        .padding(vertical = 2.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
                 MiniZoomButton(AppIcons.ZoomIn, "ズームイン") {
@@ -918,8 +921,8 @@ private fun MiniZoomButton(
 ) {
     Box(
         Modifier
-            .size(30.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .size(UiMetrics.MiniButton)
+            .clip(RoundedCornerShape(UiMetrics.CornerSmall))
             .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else androidx.compose.ui.graphics.Color.Transparent)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -927,7 +930,7 @@ private fun MiniZoomButton(
         Icon(
             icon,
             contentDescription = desc,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(UiMetrics.IconSmall),
             tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
