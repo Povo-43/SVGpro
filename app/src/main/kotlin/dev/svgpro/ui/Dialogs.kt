@@ -490,6 +490,7 @@ fun HandleNumericDialog(editor: dev.svgpro.editor.Editor, onDismiss: () -> Unit)
 @Composable
 fun DocumentSettingsDialog(
     editor: Editor,
+    refresh: Int,
     onDismiss: () -> Unit,
 ) {
     val vb = editor.doc.viewBox
@@ -499,6 +500,9 @@ fun DocumentSettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text("ドキュメント設定") },
         text = {
+            // refreshのキー評価により、エディタ変更（ガイド追加・ロック等）のたびに
+            // このtextラムダが再実行され、ガイド一覧が更新される
+            LaunchedEffect(refresh) { }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(

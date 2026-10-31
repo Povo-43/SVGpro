@@ -78,13 +78,12 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     }
 
     val canvasView = remember { CanvasView(context) }
-    LaunchedEffect(Unit) { canvasView.setup(editor) }
-    LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
     // エディタ変更通知 → UI再構成 + キャンバス再描画。
     // EditorはComposeのstateではないため、refreshカウンタがUI全体の再構成の契機になる。
     // 各コールバックで即座にinvalidateするため、ツール操作・ズーム・Undo等が
     // 再構成を待たずキャンバスへ反映される。
+    // ※ canvasView.setup()より先に登録する（setup内の初回fitToPageによる変更を取りこぼさないため）
     LaunchedEffect(Unit) {
         editor.onChanged = {
             refresh++
@@ -103,11 +102,12 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             showTextCreate = true
         }
     }
+    LaunchedEffect(Unit) { canvasView.setup(editor) }
+    LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
-    // refreshの変化で本文が再構成され、キャンバスも再描画される。
-    // このキー評価がrefreshの購読になるため、パネル未表示（compactレイアウト）でも
-    // 上部バー・下部ツールバー・ステータスバーの状態がすべて更新される。
-    LaunchedEffect(refresh) { canvasView.invalidate() }
+    // refreshの変化で本文を再構成させる（BackHandlerのdirty等の購読）。
+    // キャンバス自体はコールバック内で直接invalidateされるため、ここでは不要。
+    LaunchedEffect(refresh) { }
 
     // ファイルI/O
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -159,8 +159,16 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         val sheetMaxH = maxHeight * 0.44f
 
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+            // このスコープでrefreshを購読する。BoxWithConstraintsはsubcompositionのため
+            // 親の再構成が伝播しない。ここでキー評価することで、エディタ変更のたびに
+            // Column以下が再実行され、下位バーへ新しいrefreshが渡される。
+            // （Kotlin 2.0のstrong skippingにより、editor参照だけでは子がスキップされるため
+            //   refreshをIntパラメータとして明示的に渡して再構成させる）
+            LaunchedEffect(refresh) { canvasView.invalidate() }
+
             TopBar(
                 editor = editor,
+                refresh = refresh,
                 showMenu = showMenu,
                 onMenuDismiss = { showMenu = false },
                 onMenuOpen = { showMenu = true },
@@ -178,9 +186,13 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSettings = { showDocSettings = true },
             )
 
+            // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
+            // こうするとpenDraftの変化がstrong skippingを介しても確実に反映される）
+            val penDraftActive = editor.penDraft != null
+
             Row(Modifier.weight(1f)) {
                 if (isExpanded || isMedium) {
-                    ToolRail(editor, vertical = true)
+                    ToolRail(editor, refresh, vertical = true)
                 }
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     AndroidView(
@@ -189,7 +201,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                         modifier = Modifier.fillMaxSize(),
                     )
                     // ペン作成中の確定/取消（フローティングバー）
-                    if (editor.penDraft != null) {
+                    if (penDraftActive) {
                         Surface(
                             shape = RoundedCornerShape(14.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -235,7 +247,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
             // compact: 下部ツールバー
             if (!isExpanded && !isMedium) {
-                ToolRail(editor, vertical = false)
+                ToolRail(editor, refresh, vertical = false)
             }
 
             // compact / medium: ボトムシートパネル
@@ -249,11 +261,11 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 )
             }
 
-            StatusBar(editor)
+            StatusBar(editor, refresh)
         }
 
         if (showDocSettings) {
-            DocumentSettingsDialog(editor = editor, onDismiss = { showDocSettings = false })
+            DocumentSettingsDialog(editor = editor, refresh = refresh, onDismiss = { showDocSettings = false })
         }
 
         if (showNewDoc) {
@@ -403,6 +415,7 @@ private fun nudge(editor: Editor, dx: Double, dy: Double) {
 @Composable
 private fun TopBar(
     editor: Editor,
+    refresh: Int,
     showMenu: Boolean,
     onMenuOpen: () -> Unit,
     onMenuDismiss: () -> Unit,
@@ -419,6 +432,8 @@ private fun TopBar(
     onPanel: (String) -> Unit,
     activePanel: String?,
 ) {
+    // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
+    // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column {
         Row(
@@ -599,7 +614,7 @@ private fun toolLabel(t: ToolType): String = when (t) {
 
 /** ツールレール（縦: レール / 横: compact用バー） */
 @Composable
-fun ToolRail(editor: Editor, vertical: Boolean) {
+fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
     val haptic = LocalHapticFeedback.current
     fun pickTool(t: ToolType) {
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -614,16 +629,16 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
             ) {
                 toolGroups.forEachIndexed { gi, group ->
                     if (gi > 0) RailSeparator(vertical = true)
-                    group.forEach { (tool, icon) -> ToolButton(editor, tool, icon, onClick = { pickTool(tool) }) }
+                    group.forEach { (tool, icon) -> ToolButton(editor, refresh, tool, icon, onClick = { pickTool(tool) }) }
                 }
                 RailSeparator(vertical = true)
-                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid) {
+                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid, refresh) {
                     editor.showGrid = !editor.showGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid) {
+                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid, refresh) {
                     editor.snapToGrid = !editor.snapToGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly) {
+                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly, refresh) {
                     editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
             }
@@ -634,16 +649,16 @@ fun ToolRail(editor: Editor, vertical: Boolean) {
             ) {
                 toolGroups.forEachIndexed { gi, group ->
                     if (gi > 0) RailSeparator(vertical = false)
-                    group.forEach { (tool, icon) -> ToolButton(editor, tool, icon, onClick = { pickTool(tool) }) }
+                    group.forEach { (tool, icon) -> ToolButton(editor, refresh, tool, icon, onClick = { pickTool(tool) }) }
                 }
                 RailSeparator(vertical = false)
-                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid) {
+                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid, refresh) {
                     editor.showGrid = !editor.showGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid) {
+                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid, refresh) {
                     editor.snapToGrid = !editor.snapToGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly) {
+                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly, refresh) {
                     editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
             }
@@ -662,7 +677,8 @@ private fun RailSeparator(vertical: Boolean) {
 }
 
 @Composable
-private fun ToolButton(editor: Editor, tool: ToolType, icon: ImageVector, onClick: () -> Unit) {
+private fun ToolButton(editor: Editor, refresh: Int, tool: ToolType, icon: ImageVector, onClick: () -> Unit) {
+    // refreshの評価によりstrong skippingを打ち消し、editor.toolの変化を反映する
     val selected = editor.tool == tool
     val bg by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
@@ -686,7 +702,8 @@ private fun ToolButton(editor: Editor, tool: ToolType, icon: ImageVector, onClic
 }
 
 @Composable
-private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, onToggle: () -> Unit) {
+private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh: Int, onToggle: () -> Unit) {
+    // refreshによりstrong skippingを打ち消し、activeの変化（editor側フラグ）を反映する
     val bg by animateColorAsState(
         if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
         else androidx.compose.ui.graphics.Color.Transparent,
@@ -809,7 +826,8 @@ private fun SheetPanel(
 // ―――― ステータスバー（ズーム操作つき） ――――
 
 @Composable
-private fun StatusBar(editor: Editor) {
+private fun StatusBar(editor: Editor, refresh: Int) {
+    // refreshによりstrong skippingを打ち消し、zoom/選択数/ツール名等の素の読み取りを更新する
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column {
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -838,6 +856,11 @@ private fun StatusBar(editor: Editor) {
                             "W${dev.svgpro.core.util.Numbers.format(sb.width, 1)} H${dev.svgpro.core.util.Numbers.format(sb.height, 1)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // 幅を制限しないとズームクラスタが画面外へ押し出されるため、
+                        // 残り幅に収めて省略する（weightは非fill: 必要幅まで）
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(3f, fill = false),
                     )
                 }
                 val md = editor.lastMoveDelta

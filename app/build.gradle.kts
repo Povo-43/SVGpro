@@ -12,8 +12,8 @@ android {
         applicationId = "dev.svgpro.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.1.1"
+        versionCode = 6
+        versionName = "1.1.2"
     }
 
     // APKファイル名をSVGproに統一（SVGpro-debug.apk / SVGpro-release.apk）

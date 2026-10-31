@@ -297,8 +297,10 @@ class Editor {
         onChanged()
     }
 
-    var viewportW = 1000.0
-    var viewportH = 1000.0
+    // 0で初期化（初回のsetViewportで「最初のサイズ変更」と判定され、fitToPageが走る）。
+    // 以前は1000固定だったため最初のフィットが一度も行われず、起動直後が100%固定になっていた
+    var viewportW = 0.0
+    var viewportH = 0.0
 
     // ―――― ツール/ドラフト状態 ――――
     var tool: ToolType = ToolType.SELECT
