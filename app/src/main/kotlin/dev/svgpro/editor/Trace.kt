@@ -193,7 +193,10 @@ class Trace private constructor(
 
             fun walk(el: Element, parentAbs: Matrix, parentVisible: Boolean, parentLocked: Boolean, layer: Element?, parent: Element?) {
                 val local = Shapes.localTransform(el)
-                val abs = parentAbs.then(local)
+                // SVG仕様: 自分のtransformを先に適用し、その後祖先のtransformを適用する
+                // （p_user = parentAbs(local(p))。逆順は親scale×子translate等の
+                //   可換でない组合せで境界・ヒット・描画がすべてズレる）
+                val abs = local.then(parentAbs)
                 val visible = parentVisible && !isHidden(el)
                 val locked = parentLocked || isLocked(el)
                 val ownLayer = if (parentAbs == Matrix.IDENTITY && el.tag == "g") el else layer

@@ -434,11 +434,12 @@ class CanvasView @JvmOverloads constructor(
         canvas.drawRect(pageScreen, checkerPaint)
         canvas.drawRect(pageScreen, whitePaint)
 
-        // ドキュメント描画
-        canvas.save()
-        canvas.concat(am)
+        // ドキュメント描画。
+        // drawItemが要素ごとに「ローカル→user(abs)→画面(viewMatrix)」の完全な行列を
+        // 合成してconcatするため、ここでviewMatrixを前置きしてはならない。
+        // 二重に適用するとズーム²スケールとなり、選択枠・ページ背景（viewMatrix1回分）と
+        // 描画がズレる（書き出しは1回適用なので正確に見える、という症状の原因）。
         renderer.draw(canvas, editor)
-        canvas.restore()
 
         // グリッド
         if (editor.showGrid) {

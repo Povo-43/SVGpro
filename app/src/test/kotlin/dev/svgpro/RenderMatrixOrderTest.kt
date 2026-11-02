@@ -4,6 +4,7 @@ import dev.svgpro.core.geom.Matrix
 import dev.svgpro.core.geom.Vec
 import dev.svgpro.core.svg.SvgLoader
 import dev.svgpro.editor.Editor
+import dev.svgpro.editor.ToolType
 import dev.svgpro.editor.Trace
 import kotlin.math.abs
 import kotlin.test.Test
@@ -93,10 +94,12 @@ class RenderMatrixOrderTest {
     }
 
     @Test
-    fun nested_group_transform_composes_parent_first() {
+    fun nested_group_transform_applies_own_first_then_ancestors() {
+        // SVG仕様: p_user = parentAbs(local(p))。自分のtransformが先、祖先が後。
+        // 平行移動同士は可換のため区別できないので、親scale×子translateで固定する。
         val xml = """
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
-              <g transform="matrix(1,0,0,1,100,50)">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+              <g transform="matrix(2,0,0,2,100,50)">
                 <rect id="inner" x="0" y="0" width="10" height="10"
                       transform="matrix(1,0,0,1,5,5)" />
               </g>
@@ -109,16 +112,25 @@ class RenderMatrixOrderTest {
         val el = assertNotNull(editor.doc.root.findById("inner"))
         val item = assertNotNull(editor.trace.itemOf(el))
 
-        // abs = parent.then(local): 親のtranslateを後に適用した合成
+        // 正: local(p)=(5,5) → 親適用で (2*5+100, 2*5+50) = (110, 60)
+        // 誤（親が先）: (100,50)→+(5,5) = (105, 55)
         val p = item.abs.apply(Vec(0.0, 0.0))
-        assertEquals(105.0, p.x, 1e-9)
-        assertEquals(55.0, p.y, 1e-9)
+        assertEquals(110.0, p.x, 1e-9)
+        assertEquals(60.0, p.y, 1e-9)
 
-        // 描画合成は abs を先に適用する順でなければ、この点と一致しない
+        // 選択ボックスも同じabsを使うため一致する
+        val b = assertNotNull(editor.trace.boundsOf(el))
+        assertEquals(110.0, b.x, 1e-6)
+        assertEquals(60.0, b.y, 1e-6)
+        assertEquals(20.0, b.width, 1e-6)
+        assertEquals(20.0, b.height, 1e-6)
+
+        // 描画合成（absを先に適用しviewを後に適用）でも同じ点に一致する
         val view = Matrix(a = 1.0, d = 1.0)
         val composed = item.abs.then(view)
-        assertEquals(p.x, composed.apply(Vec(0.0, 0.0)).x, 1e-9)
-        assertEquals(p.y, composed.apply(Vec(0.0, 0.0)).y, 1e-9)
+        val drawn = composed.apply(Vec(0.0, 0.0))
+        assertEquals(p.x, drawn.x, 1e-9)
+        assertEquals(p.y, drawn.y, 1e-9)
     }
 
     @Test
@@ -156,5 +168,45 @@ class RenderMatrixOrderTest {
                     "zoom=$zoom corner mismatch: drawn=$drawn expected=$c")
             }
         }
+    }
+
+    @Test
+    fun move_and_scale_selection_tracks_render_matrix() {
+        // 移動・拡縮の編集操作後も、選択bbox（abs基準）と描画合成（abs→画面）が一致する。
+        // 「移動・拡縮のスケールが選択マスクとズレる」問題のデータ経路側の固定。
+        val e = Editor()
+        e.newDocument(200.0, 200.0)
+        e.createShape(ToolType.RECT, Vec(10.0, 10.0), Vec(50.0, 60.0))
+        val el = e.selection.first()
+
+        // 移動: 選択bboxはユーザー座標で正確に動く
+        val b0 = assertNotNull(e.trace.boundsOf(el))
+        e.moveSelection(Vec(7.0, -3.0))
+        val b1 = assertNotNull(e.trace.boundsOf(el))
+        assertEquals(b0.x + 7.0, b1.x, 1e-6)
+        assertEquals(b0.y - 3.0, b1.y, 1e-6)
+
+        // 描画合成（abs→画面）も同じ位置へ一致する
+        // （bboxはuser空間済み。描画はローカル隅 → abs → view の順で比較する）
+        val view = Matrix(a = 0.9, d = 0.9, e = 5.0, f = 8.0)
+        val drawnTopLeft = e.trace.absOf(el).then(view).apply(Vec(10.0, 10.0))
+        val selectionTopLeft = view.apply(Vec(b1.x, b1.y))
+        assertEquals(selectionTopLeft.x, drawnTopLeft.x, 1e-9)
+        assertEquals(selectionTopLeft.y, drawnTopLeft.y, 1e-9)
+
+        // 拡縮: 中心基準2倍 → bboxは中心周りで正確に2倍
+        val cx = b1.centerX
+        val cy = b1.centerY
+        e.scaleSelection(2.0, 2.0, Vec(cx, cy))
+        val b2 = assertNotNull(e.trace.boundsOf(el))
+        assertEquals(cx - (cx - b1.x) * 2.0, b2.x, 1e-6)
+        assertEquals(cy - (cy - b1.y) * 2.0, b2.y, 1e-6)
+        assertEquals(b1.width * 2.0, b2.width, 1e-6)
+        assertEquals(b1.height * 2.0, b2.height, 1e-6)
+
+        // 拡縮後も描画合成と選択bboxが一致する（左上隅はローカル(10,10)に対応）
+        val drawn2 = e.trace.absOf(el).then(view).apply(Vec(10.0, 10.0))
+        assertEquals(view.apply(Vec(b2.x, b2.y)).x, drawn2.x, 1e-9)
+        assertEquals(view.apply(Vec(b2.x, b2.y)).y, drawn2.y, 1e-9)
     }
 }
