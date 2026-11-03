@@ -71,6 +71,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showSvgOptimize by remember { mutableStateOf(false) }
     var showShortcuts by remember { mutableStateOf(false) }
     var showCommandPalette by remember { mutableStateOf(false) }
+    var showShortcutCustomize by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -207,6 +208,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
                 onShortcuts = { showShortcuts = true },
                 onCommandPalette = { showCommandPalette = true },
+                onShortcutCustomize = { showShortcutCustomize = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -368,6 +370,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             ShortcutsDialog(onDismiss = { showShortcuts = false })
         }
 
+        if (showShortcutCustomize) {
+            ShortcutCustomizeDialog(editor = editor, onDismiss = { showShortcutCustomize = false })
+        }
+
         if (showCommandPalette) {
             CommandPalette(editor = editor, onDismiss = { showCommandPalette = false })
         }
@@ -413,6 +419,32 @@ private fun handleKey(editor: Editor, keyCode: Int, event: KeyEvent, save: () ->
     val meta = event.metaState
     val ctrl = (meta and KeyEvent.META_CTRL_ON) != 0
     val shift = (meta and KeyEvent.META_SHIFT_ON) != 0
+    // カスタムショートカット（Ctrl 基本）。editor.customKeyBindings のアクション名->keyCode マップで上書き可能。
+    val customAction = editor.customKeyBindings.entries.firstOrNull { it.value == keyCode }?.key
+    if (ctrl && customAction != null) {
+        when (customAction) {
+            "undo" -> { editor.undo(); return true }
+            "redo" -> { editor.redo(); return true }
+            "save" -> { save(); return true }
+            "copy" -> { editor.copySelection(); return true }
+            "cut" -> { editor.cutSelection(); return true }
+            "paste" -> { editor.pasteFromClipboard(inPlace = false); return true }
+            "delete" -> { editor.deleteSelection(); return true }
+            "duplicate" -> { editor.duplicateSelection(); return true }
+            "selectAll" -> {
+                editor.selectAllInBox(
+                    Bounds(Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY),
+                    additive = false,
+                ); return true
+            }
+            "invertSelection" -> { editor.invertSelection(); return true }
+            "group" -> { editor.groupSelection(); return true }
+            "ungroup" -> { editor.ungroupSelection(); return true }
+            "rulers" -> { editor.showRulers = !editor.showRulers; editor.onChanged(); return true }
+            "grid" -> { editor.showGrid = !editor.showGrid; editor.onChanged(); return true }
+            "gridSnap" -> { editor.snapToGrid = !editor.snapToGrid; editor.onChanged(); return true }
+        }
+    }
     return when {
         ctrl && keyCode == KeyEvent.KEYCODE_Z && !shift -> { editor.undo(); true }
         (ctrl && keyCode == KeyEvent.KEYCODE_Z && shift) || (ctrl && keyCode == KeyEvent.KEYCODE_Y) -> { editor.redo(); true }
@@ -479,6 +511,7 @@ private fun TopBar(
     onImageImport: () -> Unit,
     onShortcuts: () -> Unit,
     onCommandPalette: () -> Unit,
+    onShortcutCustomize: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -578,6 +611,11 @@ private fun TopBar(
                         text = { Text("ショートカット一覧") },
                         leadingIcon = { Icon(AppIcons.Shortcuts, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onShortcuts() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ショートカットカスタマイズ…") },
+                        leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onShortcutCustomize() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },

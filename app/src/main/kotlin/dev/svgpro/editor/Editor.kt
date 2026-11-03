@@ -394,6 +394,14 @@ class Editor {
     var penOnly by mutableStateOf(false) // スタイラスのみで作図（指はパン/ズーム）。UIトグルから読まれる
     var usePressure = true
 
+    /** カスタムキーボードショートカット（アクション名 -> keyCode、Ctrl修飾子前提） */
+    val customKeyBindings = mutableMapOf<String, Int>()
+
+    fun setCustomShortcut(action: String, keyCode: Int) {
+        customKeyBindings[action] = keyCode
+        notifyChanged()
+    }
+
     // キャンバスビュー回転（度、正=画面上で時計回り）。editデータの座標は不変。
     var canvasRotation by mutableStateOf(0.0)
 

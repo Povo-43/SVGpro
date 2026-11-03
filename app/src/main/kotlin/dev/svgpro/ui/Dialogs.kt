@@ -846,3 +846,59 @@ private fun shortcutSection(title: String, items: List<Pair<String, String>>) {
     Spacer(Modifier.height(4.dp))
     Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
 }
+
+/** キーボードショートカットカスタマイズダイアログ。 */
+@Composable
+fun ShortcutCustomizeDialog(editor: Editor, onDismiss: () -> Unit) {
+    var editingAction by remember { mutableStateOf<String?>(null) }
+    val actions = listOf(
+        "undo" to "元に戻す", "redo" to "やり直す", "save" to "保存",
+        "copy" to "コピー", "cut" to "カット", "paste" to "ペースト",
+        "delete" to "削除", "duplicate" to "複製", "selectAll" to "全選択",
+        "invertSelection" to "選択反転", "group" to "グループ化", "ungroup" to "グループ解除",
+        "rulers" to "ルーラー表示", "grid" to "グリッド表示", "gridSnap" to "グリッドスナップ",
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ショートカットカスタマイズ") },
+        text = {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .onKey { event ->
+                        if (event.action == KeyEvent.ACTION_DOWN && editingAction != null) {
+                            val code = event.keyCode
+                            if (code != KeyEvent.KEYCODE_UNKNOWN) {
+                                editor.setCustomShortcut(editingAction, code)
+                                editingAction = null
+                            }
+                            true
+                        } else false
+                    },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("「設定」を押した後、割り当てたいキーを押してください（Ctrlキーとの組み合わせで登録）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(actions, key = { it.first }) { (action, label) ->
+                        val cur = editor.customKeyBindings[action]
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Text(cur?.toString() ?: "未設定", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(56.dp))
+                            Button(
+                                onClick = { editingAction = action },
+                                enabled = editingAction == null,
+                            ) {
+                                Text(if (editingAction == action) "キー入力待ち…" else "設定")
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
