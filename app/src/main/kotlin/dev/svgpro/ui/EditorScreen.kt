@@ -72,6 +72,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showShortcuts by remember { mutableStateOf(false) }
     var showCommandPalette by remember { mutableStateOf(false) }
     var showShortcutCustomize by remember { mutableStateOf(false) }
+    var showContextMenu by remember { mutableStateOf(false) }
+    var contextMenuPos by remember { mutableStateOf(FloatArray(2)) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -107,7 +109,14 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             showTextCreate = true
         }
     }
-    LaunchedEffect(Unit) { canvasView.setup(editor) }
+    LaunchedEffect(Unit) {
+        canvasView.setup(editor)
+        canvasView.onLongPress = { x, y ->
+            contextMenuPos[0] = x
+            contextMenuPos[1] = y
+            showContextMenu = true
+        }
+    }
     LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
     // refreshの変化で本文を再構成させる（BackHandlerのdirty等の購読）。
@@ -372,6 +381,15 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
         if (showShortcutCustomize) {
             ShortcutCustomizeDialog(editor = editor, onDismiss = { showShortcutCustomize = false })
+        }
+
+        if (showContextMenu) {
+            ContextMenu(
+                editor = editor,
+                screenX = contextMenuPos[0],
+                screenY = contextMenuPos[1],
+                onDismiss = { showContextMenu = false },
+            )
         }
 
         if (showCommandPalette) {

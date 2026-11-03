@@ -936,3 +936,80 @@ fun ShortcutCustomizeDialog(editor: Editor, onDismiss: () -> Unit) {
         dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
     )
 }
+
+/** 長押しコンテキストメニュー（ポップアップ形式）。 */
+@Composable
+fun ContextMenu(
+    editor: Editor,
+    screenX: Float,
+    screenY: Float,
+    onDismiss: () -> Unit,
+) {
+    // メニュー項目: (ラベル, アイコン, アクション, 有効か)
+    val items = listOf(
+        Triple("コピー", AppIcons.ContentCopy, { editor.copySelection() }, editor.selection.isNotEmpty()),
+        Triple("カット", AppIcons.ContentCut, { editor.cutSelection() }, editor.selection.isNotEmpty()),
+        Triple("ペースト", AppIcons.ContentPaste, { editor.pasteFromClipboard(inPlace = false) }, editor.clipboard.isNotEmpty()),
+        Triple("削除", AppIcons.Delete, { editor.deleteSelection() }, editor.selection.isNotEmpty()),
+        Triple("複製", AppIcons.Plus, { editor.duplicateSelection() }, editor.selection.isNotEmpty()),
+        Triple("グループ化", AppIcons.Group, { editor.groupSelection() }, editor.selection.size >= 2),
+        Triple("グループ解除", AppIcons.Ungroup, { editor.ungroupSelection() }, editor.selection.any { it.tag == "g" }),
+        Triple("全選択", null, {
+            editor.selectAllInBox(
+                dev.svgpro.core.geom.Bounds(
+                    Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY,
+                    Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
+                ),
+                additive = false,
+            )
+        }, true),
+    )
+
+    Popup(
+        onDismissRequest = onDismiss,
+        modifier = Modifier
+            .width(180.dp)
+            .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) },
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(8.dp),
+            tonalElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column {
+                items.forEachIndexed { index, (label, icon, action, enabled) ->
+                    if (index > 0) {
+                        Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = enabled, onClick = { action(); onDismiss() }),
+                    ) {
+                        Row(
+                            Modifier
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .width(156.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (icon != null) {
+                                Icon(
+                                    icon, null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                )
+                            }
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

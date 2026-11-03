@@ -62,6 +62,16 @@ class CanvasView @JvmOverloads constructor(
     // ペン用の状態追跡
     private var penPointerId = -1
 
+    // 長押しコンテキストメニュー
+    private var longPressStartTime = 0L
+    private var longPressStartScreen = Vec.ZERO
+    private var longPressCancelled = false
+    private val LONG_PRESS_TIMEOUT = 500L // ms
+    private val LONG_PRESS_MOVE_THRESHOLD = 10f // px
+
+    /** 長押し時にコンテキストメニューを表示するコールバック（screenX, screenY） */
+    var onLongPress: ((Float, Float) -> Unit)? = null
+
     // ―――― 描画ペイント（テーマ連動: onDraw時に CanvasTheme から更新） ――――
     private val checkerPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val pageBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -272,6 +282,11 @@ class CanvasView @JvmOverloads constructor(
                     return true
                 }
 
+                // 長押しコンテキストメニューのトラッキング開始
+                longPressStartTime = System.currentTimeMillis()
+                longPressStartScreen = Vec(ev.x.toDouble(), ev.y.toDouble())
+                longPressCancelled = false
+
                 // ツール操作を開始
                 val screen = Vec(ev.x.toDouble(), ev.y.toDouble())
                 val user = editor.screenToUser(screen)
@@ -323,6 +338,15 @@ class CanvasView @JvmOverloads constructor(
                     }
                     return true
                 }
+                // 長押し中に閾値以上移動したらキャンセル
+                if (!longPressCancelled) {
+                    val dx = ev.getX(0) - longPressStartScreen.x
+                    val dy = ev.getY(0) - longPressStartScreen.y
+                    if (kotlin.math.hypot(dx.toDouble(), dy.toDouble()) > LONG_PRESS_MOVE_THRESHOLD) {
+                        longPressCancelled = true
+                    }
+                }
+
                 // 単一ポインタ: ツールへ
                 val idx = if (penPointerId >= 0) ev.findPointerIndex(penPointerId).takeIf { it >= 0 } ?: 0 else 0
                 val screen = Vec(ev.getX(idx).toDouble(), ev.getY(idx).toDouble())
@@ -360,6 +384,15 @@ class CanvasView @JvmOverloads constructor(
                     tools.onPenUp(user, false)
                 }
                 tools.onUp(user, screen, ev, cancelled)
+
+                // 長押しコンテキストメニュー: キャンセルされておらず、時間閾値を超えた場合に表示
+                if (!cancelled && !longPressCancelled) {
+                    val elapsed = System.currentTimeMillis() - longPressStartTime
+                    if (elapsed >= LONG_PRESS_TIMEOUT) {
+                        onLongPress?.invoke(longPressStartScreen.x, longPressStartScreen.y)
+                        longPressCancelled = true // 二重発火防止
+                    }
+                }
                 performClick()
                 return true
             }
