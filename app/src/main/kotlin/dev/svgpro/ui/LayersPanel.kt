@@ -61,6 +61,9 @@ fun LayersPanel(editor: Editor, refresh: Int) {
             PanelIconButton(AppIcons.Group, "グループ化") { editor.groupSelection() }
             PanelIconButton(AppIcons.Ungroup, "グループ解除") { editor.ungroupSelection() }
             PanelIconButton(AppIcons.Delete, "削除") { editor.deleteSelection() }
+            val selLayer = editor.selection.firstOrNull { it.tag == "g" }
+            PanelIconButton(AppIcons.Plus, "レイヤー複製") { selLayer?.let { editor.duplicateLayer(it) } }
+            PanelIconButton(AppIcons.PathOps, "選択レイヤー結合") { editor.mergeSelectedLayers() }
         }
     }
 

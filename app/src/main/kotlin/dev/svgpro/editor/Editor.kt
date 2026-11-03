@@ -1396,6 +1396,50 @@ class Editor {
         notifySelection()
     }
 
+    /** レイヤー（g 要素）を複製する */
+    fun duplicateLayer(el: Element) {
+        if (el.tag != "g") return
+        val parent = findParent(el) ?: doc.root
+        val copy = el.deepCopy()
+        copy.setAttr("id", null)
+        val idx = parent.children.indexOf(el) + 1
+        val cs = ChangeSet(listOf(Attach(copy, parent, idx, doc.root, "duplicate layer")), "duplicate layer", listOf(copy))
+        cs.apply()
+        selection.clear()
+        selection.add(copy)
+        undoStack.push(cs)
+        updateNodeSession()
+        notifyChanged()
+        notifySelection()
+    }
+
+    /** 選択中のレイヤー（g）を1つに結合：最初のレイヤーに他のレイヤーの子を移し、残りを削除 */
+    fun mergeSelectedLayers() {
+        val layers = selection.filter { it.tag == "g" }
+        if (layers.size < 2) return
+        val target = layers.first()
+        val others = layers.drop(1)
+        val changes = ArrayList<dev.svgpro.core.edit.Change>()
+        for (other in others) {
+            val parent = findParent(other) ?: continue
+            val idx = parent.children.indexOf(other)
+            val children = other.childElements().toList()
+            for (c in children) {
+                changes.add(Attach(c, target, target.childElements().size, doc.root, "merge layers"))
+            }
+            changes.add(Detach(other, parent, idx.coerceAtLeast(0), "merge layers"))
+        }
+        if (changes.isEmpty()) return
+        val cs = ChangeSet(changes, "merge layers", listOf(target))
+        cs.apply()
+        selection.clear()
+        selection.add(target)
+        undoStack.push(cs)
+        updateNodeSession()
+        notifyChanged()
+        notifySelection()
+    }
+
     /** 新規図形要素のスタイル適用 */
     fun applyCurrentStyle(el: Element) {
         when (val f = curFill) {
