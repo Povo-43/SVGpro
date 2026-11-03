@@ -70,7 +70,12 @@ import dev.svgpro.editor.setGradientStopColor
  * プロパティパネル（塗り・線・整列・パス操作）。
  */
 @Composable
-fun PropertiesPanel(editor: Editor, refresh: Int) {
+fun PropertiesPanel(
+    editor: Editor,
+    refresh: Int,
+    onSaveSwatches: () -> Unit,
+    onLoadSwatches: () -> Unit,
+) {
     var colorDialogTarget by remember { mutableStateOf<String?>(null) } // "fill" | "stroke"
     var colorSwatchTarget by remember { mutableStateOf("fill") } // "fill" | "stroke"
     var offsetDialog by remember { mutableStateOf(false) }
@@ -146,6 +151,8 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
                 val c = if (hasSel) editor.selectionFill() else editor.curFill
                 (c as? Paint.Solid)?.let { editor.addColorSwatch(it.argb) }
             }
+            CompactButton("パレット保存", filled = false) { onSaveSwatches() }
+            CompactButton("パレット読込", filled = false) { onLoadSwatches() }
         }
 
         // ―――― 線 ――――

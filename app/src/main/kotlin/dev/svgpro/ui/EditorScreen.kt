@@ -137,6 +137,16 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         if (uri != null) importImage(vm, uri)
     }
 
+    val swatchSaveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) saveSwatches(uri)
+    }
+    val swatchLoadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadSwatches(uri)
+    }
+
+    val onSaveSwatches = { swatchSaveLauncher.launch("swatches.json") }
+    val onLoadSwatches = { swatchLoadLauncher.launch(arrayOf("application/json", "*/*")) }
+
     fun doSave() {
         val uri = vm.currentUri
         if (uri != null) {
@@ -949,7 +959,7 @@ private fun SidePanel(
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
                     "history" -> HistoryPanel(editor, refresh)
-                    else -> PropertiesPanel(editor, refresh)
+                    else -> PropertiesPanel(editor, refresh, onSaveSwatches, onLoadSwatches)
                 }
             }
         }
@@ -1001,7 +1011,7 @@ private fun SheetPanel(
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
                     "history" -> HistoryPanel(editor, refresh)
-                    else -> PropertiesPanel(editor, refresh)
+                    else -> PropertiesPanel(editor, refresh, onSaveSwatches, onLoadSwatches)
                 }
             }
         }
@@ -1310,4 +1320,35 @@ private fun commandList(editor: Editor): List<Triple<String, String, () -> Unit>
         Triple("画像をインポート…", "") { imageImportLauncher.launch(arrayOf("image/*")) },
         Triple("PNG書き出し…", "") { pngLauncher.launch("export.png") },
     )
+}
+
+/** カラーパレット（スウォッチ）を JSON ファイルに保存する。 */
+fun saveSwatches(editor: Editor, uri: android.net.Uri) {
+    try {
+        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
+        val json = "[" + editor.colorSwatches.joinToString(",") { it.toString() } + "]"
+        resolver.openOutputStream(uri, "wt")?.use { out ->
+            out.write(json.toByteArray(Charsets.UTF_8))
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+/** カラーパレット（スウォッチ）を JSON ファイルから読み込む。 */
+fun loadSwatches(editor: Editor, uri: android.net.Uri) {
+    try {
+        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
+        val text = resolver.openInputStream(uri)?.use { stream ->
+            BufferedReader(java.io.InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+        } ?: return
+        val trimmed = text.trim()
+        val body = if (trimmed.startsWith("[") && trimmed.endsWith("]")) trimmed.substring(1, trimmed.length - 1) else trimmed
+        val values = body.split(",").filter { it.isNotEmpty() }.mapNotNull { it.toIntOrNull() }
+        editor.colorSwatches.clear()
+        editor.colorSwatches.addAll(values)
+        editor.notifyChanged()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
 }
