@@ -25,6 +25,12 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # リリース鍵（キーストア）を GitHub Secrets から復元。PR ではスキップ。
+      - name: Restore release keystore from GitHub Secret
+        if: github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_B64 != ''
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE_B64 }}" | base64 -d > app/svgpro-release.keystore
+
       - name: Run core tests
         run: ./gradlew :core:test --console=plain
 
@@ -36,6 +42,9 @@ jobs:
 
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --console=plain
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

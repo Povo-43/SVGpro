@@ -189,8 +189,8 @@ class ToolController(val editor: Editor) {
             }
             Mode.MOVE -> {
                 var d = delta
-                // スナップ（選択bbox基準）
-                d = applySnapForMove(delta)
+                // スナップ（選択bbox基準）。Shift押下でグリッドへ強制スナップ（格子に合わせやすく）
+                d = applySnapForMove(d, forceGrid = isShift(ev))
                 // スマートガイド（他オブジェクトとの整列補助）
                 editor.smartGuideV.clear()
                 editor.smartGuideH.clear()
@@ -240,9 +240,9 @@ class ToolController(val editor: Editor) {
                     val m = session.models.getOrNull(ref.sub) ?: continue
                     val start = nodeDragStartPositions[ref] ?: continue
                     var np = start + d
-                    // グリッド → ガイドの順でスナップ（ドラッグ中のノード自身）
-                    if (editor.snapToGrid) {
-                        np = Vec(round(np.x / editor.gridSize) * editor.gridSize, round(np.y / editor.gridSize) * editor.gridSize)
+                    // グリッド → ガイドの順でスナップ（ドラッグ中のノード自身）。Shiftでグリッド強制スナップ
+                    if (editor.snapToGrid || isShift(ev)) {
+                        np = Vec(round(np.x / editor.gridSize.coerceAtLeast(1e-6)) * editor.gridSize, round(np.y / editor.gridSize.coerceAtLeast(1e-6)) * editor.gridSize)
                     }
                     np = snapToGuideLines(np)
                     m.setNodePosition(ref.node, np)
@@ -255,8 +255,8 @@ class ToolController(val editor: Editor) {
                 val (ref, isIn) = session.activeHandle ?: return
                 val m = session.models.getOrNull(ref.sub) ?: return
                 var p = user
-                if (editor.snapToGrid) {
-                    p = Vec(round(p.x / editor.gridSize) * editor.gridSize, round(p.y / editor.gridSize) * editor.gridSize)
+                if (editor.snapToGrid || isShift(ev)) {
+                    p = Vec(round(p.x / editor.gridSize.coerceAtLeast(1e-6)) * editor.gridSize, round(p.y / editor.gridSize.coerceAtLeast(1e-6)) * editor.gridSize)
                 }
                 val mirror = when {
                     isShift(ev) -> dev.svgpro.core.path.HandleMirror.NONE
@@ -562,12 +562,18 @@ class ToolController(val editor: Editor) {
         for ((el, t) in pre) el.setAttr("transform", t)
     }
 
-    private fun applySnapForMove(delta: Vec): Vec {
-        if (!editor.snapToGrid && !editor.snapToObject) return delta
+    private fun applySnapForMove(delta: Vec, forceGrid: Boolean = false): Vec {
+        if (!forceGrid && !editor.snapToGrid && !editor.snapToObject) return delta
         // 現在の選択bboxをdeltaで動かした場合のスナップ
         val b = editor.trace.boundsOf(editor.selection) ?: return delta
         val candidate = Bounds(b.x + delta.x, b.y + delta.y, b.width, b.height)
-        val snapped = editor.snapPoint(Vec(candidate.x, candidate.y), ignore = editor.selection)
+        var snapX = candidate.x
+        var snapY = candidate.y
+        if (forceGrid || editor.snapToGrid) {
+            snapX = kotlin.math.round(snapX / editor.gridSize.coerceAtLeast(1e-6)) * editor.gridSize
+            snapY = kotlin.math.round(snapY / editor.gridSize.coerceAtLeast(1e-6)) * editor.gridSize
+        }
+        val snapped = editor.snapPoint(Vec(snapX, snapY), ignore = editor.selection)
         var d = Vec(snapped.x - candidate.x, snapped.y - candidate.y)
         // 回転などでbboxが変化する場合はそのまま
         return delta + d * 0.999

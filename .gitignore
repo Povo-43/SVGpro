@@ -12,3 +12,6 @@ local.properties
 
 # Kotlin/Native etc
 .kotlin/
+
+# Release signing keystore（コミット禁止：GitHub Secrets で管理）
+app/svgpro-release.keystore

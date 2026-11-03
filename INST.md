@@ -414,3 +414,29 @@ UIの要件
 - インストール可能なAPK（GitHub Actionsでビルドして配布できるようにしてください）
 
 最終的な評価基準は、機能の数ではなく、実際にSVGを読み込み、パスを精密に編集し、正しく保存できることです。
+
+## リリースAPK の署名について（重要）
+
+実機にリリースAPKを上書きインストールする際、Androidはインストール済みアプリと新しいAPKの署名鍵が一致していることを要求します。鍵が異なると `INSTALL_FAILED_UPDATE_INCOMPATIBLE` でインストールできません。
+
+このプロジェクトでは、リリースビルドの署名鍵を**固定**するため、以下を導入しました。
+
+- `app/svgpro-release.keystore` … リリース専用キーストア（エイリアス `svgpro-release`、有効期限2126年まで）。**`.gitignore` で除外し、リポジトリにはコミットしません。**
+- `gradle.properties` … キーストアパスとエイリアスのみ。パスワードは書きません。
+- `app/build.gradle.kts` … `release` ビルドタイプを `signingConfigs.release` で署名（`debug` 鍵は使用しない）。パスワードは環境変数 `RELEASE_STORE_PASSWORD` / `RELEASE_KEY_PASSWORD` から読み込みます。
+
+**このキーストアは絶対に再生成・削除・変更しないでください。** 変更するとそれまでにインストール済みの旧バージョンと署名が合わず、アップデートインストールができなくなります。バックアップを必ず取ってください。
+
+### GitHub Actions でのリリースビルド（Secrets の設定）
+
+CI でリリースAPKをビルド・配布する際は、リポジトリの **Settings → Secrets and variables → Actions** に以下の 3 つのシークレットを登録してください。
+
+| シークレット名 | 内容 |
+|---|---|
+| `RELEASE_KEYSTORE_B64` | `app/svgpro-release.keystore` を base64 エンコードした値 (`base64 -w0 app/svgpro-release.keystore`) |
+| `RELEASE_STORE_PASSWORD` | キーストアのストアパスワード |
+| `RELEASE_KEY_PASSWORD` | 鍵のパスワード（同一でも可） |
+
+ワークフローはビルド前にシークレットからキーストアを復元し、環境変数経由で Gradle に渡します。
+
+debug ビルドは従来通り Android SDK のデフォルト debug 鍵で署名されます。

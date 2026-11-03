@@ -25,11 +25,25 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val props = rootProject.properties
+            storeFile = rootProject.file(props["android.signing.release.storeFile"] as? String ?: "app/svgpro-release.keystore")
+            // パスワードは環境変数から読み込む（リポジトリに平文を置かない）。
+            // CI は GitHub Secrets から渡す。ローカルで release ビルドする場合は事前に export してください。
+            storePassword = System.getenv("RELEASE_STORE_PASSWORD")
+            keyAlias = props["android.signing.release.keyAlias"] as? String ?: "svgpro-release"
+            keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // CI配布用にdebug鍵で署名（実機インストール可能なリリースAPK）
+            // 固定リリース鍵で署名（debug鍵は使わない。鍵を固定しないと実機への更新インストールで署名競合が発生する）
+            signingConfig = signingConfigs.getByName("release")
+        }
+        debug {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
