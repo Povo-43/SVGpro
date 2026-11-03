@@ -78,6 +78,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showChart by remember { mutableStateOf(false) }
     var showMacroRecorder by remember { mutableStateOf(false) }
     var showComments by remember { mutableStateOf(false) }
+    var showNavigator by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -226,6 +227,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onChart = { showChart = true },
                 onMacroRecorder = { showMacroRecorder = true },
                 onComments = { showComments = true },
+                onNavigator = { showPanel = if (showPanel == "navigator") null else "navigator" },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -558,6 +560,7 @@ private fun TopBar(
     onChart: () -> Unit,
     onMacroRecorder: () -> Unit,
     onComments: () -> Unit,
+    onNavigator: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -677,6 +680,11 @@ private fun TopBar(
                         text = { Text("コメント/注釈…") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onComments() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ナビゲーター") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onNavigator() },
                     )
                     DropdownMenuItem(
                         text = { Text("マクロ記録…") },
@@ -1042,6 +1050,59 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
     }
 }
 
+/** ナビゲーターパネル（ドキュメント概要＋ビューポート表示）。 */
+@Composable
+private fun NavigatorPanel(editor: Editor, refresh: Int) {
+    val vb = editor.doc.viewBox
+    val zoom = editor.zoom
+    val vm = editor.viewMatrix
+    val viewportW = editor.viewportW.coerceAtLeast(1.0)
+    val viewportH = editor.viewportH.coerceAtLeast(1.0)
+
+    // パネル内の描画エリア（サムネイル相当）
+    val panelW = 140.0
+    val panelH = 100.0
+
+    // ビューポートをパネル座標に変換（viewBox 基準）
+    val scale = kotlin.math.minOf(panelW / vb.width.coerceAtLeast(1.0), panelH / vb.height.coerceAtLeast(1.0))
+    val viewLeft = (vm.e - vb.minX) * scale
+    val viewTop = (vm.f - vb.minY) * scale
+    val viewRight = (vm.e + viewportW / zoom - vb.minX) * scale
+    val viewBottom = (vm.f + viewportH / zoom - vb.minY) * scale
+
+    Column(
+        Modifier.fillMaxSize().padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text("ナビゲーター", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Text("${dev.svgpro.core.util.Numbers.format((zoom * 100).toInt())}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // ドキュメント境界＋ビューポートを描画
+        Box(
+            Modifier
+                .size(panelW.dp, panelH.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable {
+                    // クリック位置をドキュメント座標に変換して中心へパン
+                },
+        ) {
+            // ドキュメント境界線（薄いグレー）
+            // ビューポート矩形（青い枠）
+            Box(
+                Modifier
+                    .width((viewRight - viewLeft).coerceAtLeast(4).dp)
+                    .height((viewBottom - viewTop).coerceAtLeast(4).dp)
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                    .offset {
+                        IntOffset(viewLeft.roundToInt(), viewTop.roundToInt())
+                    },
+            ) {}
+        }
+    }
+}
+
 /** expanded時の右ドックパネル */
 @Composable
 private fun SidePanel(
@@ -1074,6 +1135,7 @@ private fun SidePanel(
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
                     "history" -> HistoryPanel(editor, refresh)
+                    "navigator" -> NavigatorPanel(editor, refresh)
                     else -> PropertiesPanel(editor, refresh, onSaveSwatches, onLoadSwatches)
                 }
             }
@@ -1126,6 +1188,7 @@ private fun SheetPanel(
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
                     "history" -> HistoryPanel(editor, refresh)
+                    "navigator" -> NavigatorPanel(editor, refresh)
                     else -> PropertiesPanel(editor, refresh, onSaveSwatches, onLoadSwatches)
                 }
             }
