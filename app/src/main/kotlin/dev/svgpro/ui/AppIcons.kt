@@ -235,6 +235,11 @@ object AppIcons {
     val ContentCopy: ImageVector = Icons.Filled.ContentCopy
     val ContentCut: ImageVector = Icons.Filled.ContentCut
     val ContentPaste: ImageVector = Icons.Filled.ContentPaste
+    val ImageImport: ImageVector = icon(
+        "ImageImport",
+        "M19,3H5C3.9,3 3,3.9 3,5V19C3,20.1 3.9,21 5,21H19C20.1,21 21,20.1 21,19V5C21,3.9 20.1,3 19,3Z M19,5V17H5V5H19Z M12,7L9,10L9,14L12,14L12,17L15,17L15,14L12,14L12,10L15,10L15,7L12,7Z",
+        stroke = 1.5f,
+    )
     val Up: ImageVector = icon("Up", "M12,5 L12,19 M6,11 L12,5 L18,11")
     val Down: ImageVector = icon("Down", "M12,19 L12,5 M6,13 L12,19 L18,13")
     val FlipH: ImageVector = icon("FlipH", "M12,3 L12,21 M7,7 L3,12 L7,17 M17,7 L21,12 L17,17")

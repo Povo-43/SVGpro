@@ -131,6 +131,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         }
     }
 
+    val imageImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importImage(vm, uri)
+    }
+
     fun doSave() {
         val uri = vm.currentUri
         if (uri != null) {
@@ -188,6 +192,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSettings = { showDocSettings = true },
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
+                onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -449,6 +454,7 @@ private fun TopBar(
     onSettings: () -> Unit,
     onSvgSource: () -> Unit,
     onSvgOptimize: () -> Unit,
+    onImageImport: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -538,6 +544,11 @@ private fun TopBar(
                         text = { Text("SVG最適化・検証…") },
                         leadingIcon = { Icon(AppIcons.PathOps, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onSvgOptimize() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("画像をインポート…") },
+                        leadingIcon = { Icon(AppIcons.ImageImport, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onImageImport() },
                     )
                 }
             }
@@ -1160,6 +1171,30 @@ fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor) {
         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
         resolver.openOutputStream(uri, "wt")?.use { out ->
             out.write(editor.doc.serialize().toByteArray(Charsets.UTF_8))
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+/** 画像ファイルを data URI（PNG Base64）として埋め込み image 要素を追加する */
+fun importImage(vm: EditorViewModel, uri: android.net.Uri) {
+    try {
+        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
+        resolver.openInputStream(uri)?.use { input ->
+            val bmp = android.graphics.BitmapFactory.decodeStream(input) ?: return
+            val out = java.io.ByteArrayOutputStream()
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            bmp.recycle()
+            val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+            val el = dev.svgpro.core.svg.Element("image")
+            el.setAttr("href", "data:image/png;base64,$base64")
+            el.setAttr("xlink:href", "data:image/png;base64,$base64")
+            el.setAttr("x", "0")
+            el.setAttr("y", "0")
+            el.setAttr("width", bmp.width.toString())
+            el.setAttr("height", bmp.height.toString())
+            vm.editor.addElement(el, "import image")
         }
     } catch (e: Exception) {
         e.printStackTrace()
