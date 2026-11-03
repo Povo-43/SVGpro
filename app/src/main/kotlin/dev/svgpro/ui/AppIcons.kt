@@ -242,6 +242,7 @@ object AppIcons {
     )
     val Outline: ImageVector = icon("Outline", "M3,3 L21,3 L21,21 L3,21 Z M7,7 L17,7 L17,17 L7,17 Z", stroke = 1.4f)
     val Shortcuts: ImageVector = icon("Shortcuts", "M4,4 L20,4 L20,20 L4,20 Z M6,8 L18,8 M6,12 L18,12 M6,16 L18,16", stroke = 1.4f)
+    val Search: ImageVector = icon("Search", "M10.5,4 C13.8,4 17,7.1 17,10.5 C17,13.9 13.8,17 10.5,17 C7.2,17 4,13.9 4,10.5 C4,7.1 7.2,4 10.5,4 Z M14,14 L17,17", stroke = 1.5f)
     val Up: ImageVector = icon("Up", "M12,5 L12,19 M6,11 L12,5 L18,11")
     val Down: ImageVector = icon("Down", "M12,19 L12,5 M6,13 L12,19 L18,13")
     val FlipH: ImageVector = icon("FlipH", "M12,3 L12,21 M7,7 L3,12 L7,17 M17,7 L21,12 L17,17")

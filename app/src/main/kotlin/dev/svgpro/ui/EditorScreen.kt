@@ -70,6 +70,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showSvgSource by remember { mutableStateOf(false) }
     var showSvgOptimize by remember { mutableStateOf(false) }
     var showShortcuts by remember { mutableStateOf(false) }
+    var showCommandPalette by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -195,6 +196,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgOptimize = { showSvgOptimize = true },
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
                 onShortcuts = { showShortcuts = true },
+                onCommandPalette = { showCommandPalette = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -356,6 +358,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             ShortcutsDialog(onDismiss = { showShortcuts = false })
         }
 
+        if (showCommandPalette) {
+            CommandPalette(editor = editor, onDismiss = { showCommandPalette = false })
+        }
+
         if (showRestoreConfirm) {
             AlertDialog(
                 onDismissRequest = { showRestoreConfirm = false },
@@ -462,6 +468,7 @@ private fun TopBar(
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
     onShortcuts: () -> Unit,
+    onCommandPalette: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -561,6 +568,11 @@ private fun TopBar(
                         text = { Text("ショートカット一覧") },
                         leadingIcon = { Icon(AppIcons.Shortcuts, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onShortcuts() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("コマンドパレット…") },
+                        leadingIcon = { Icon(AppIcons.Search, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onCommandPalette() },
                     )
                 }
             }
@@ -1214,4 +1226,88 @@ fun importImage(vm: EditorViewModel, uri: android.net.Uri) {
     } catch (e: Exception) {
         e.printStackTrace()
     }
+}
+
+/** 検索可能なコマンドパレット（カテゴリ18）。 */
+@Composable
+private fun CommandPalette(editor: Editor, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val all = commandList(editor)
+    val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("コマンドパレット") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().widthIn(min = 340.dp).heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("コマンドを検索") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                if (filtered.isEmpty()) {
+                    Text("一致するコマンドはありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(filtered) { (label, shortcut, action) ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { action(); onDismiss() },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spaceBetween,
+                                padding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            ) {
+                                Column {
+                                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                                    if (shortcut.isNotEmpty()) {
+                                        Text(shortcut, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                Icon(AppIcons.More, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
+
+/** コマンドパレット用のコマンド一覧（ラベル, ショートカット, アクション）。 */
+private fun commandList(editor: Editor): List<Triple<String, String, () -> Unit>> {
+    return listOf(
+        Triple("元に戻す", "Ctrl+Z") { if (editor.undoStack.canUndo) editor.undo() },
+        Triple("やり直す", "Ctrl+Shift+Z / Ctrl+Y") { if (editor.undoStack.canRedo) editor.redo() },
+        Triple("保存", "Ctrl+S") { doSave() },
+        Triple("別名で保存…", "") { createLauncher.launch(editor.documentName) },
+        Triple("コピー", "Ctrl+C") { editor.copySelection() },
+        Triple("カット", "Ctrl+X") { editor.cutSelection() },
+        Triple("ペースト", "Ctrl+V") { editor.pasteFromClipboard(inPlace = false) },
+        Triple("削除", "Delete") { editor.deleteSelection() },
+        Triple("複製", "Ctrl+D") { editor.duplicateSelection() },
+        Triple("全選択", "Ctrl+A") {
+            editor.selectAllInBox(
+                Bounds(Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY),
+                additive = false,
+            )
+        },
+        Triple("選択反転", "") { editor.invertSelection() },
+        Triple("グループ化", "Ctrl+G") { editor.groupSelection() },
+        Triple("グループ解除", "Ctrl+Shift+G") { editor.ungroupSelection() },
+        Triple("数値変形…", "") { showTransform = true },
+        Triple("色の一括置換…", "") { showReplaceColor = true },
+        Triple("ルーラー表示", "Ctrl+R") { editor.showRulers = !editor.showRulers; editor.onChanged() },
+        Triple("グリッド表示", "") { editor.showGrid = !editor.showGrid; editor.onChanged() },
+        Triple("グリッドスナップ", "") { editor.snapToGrid = !editor.snapToGrid; editor.onChanged() },
+        Triple("SVGソースコード編集…", "") { showSvgSource = true },
+        Triple("SVG最適化・検証…", "") { showSvgOptimize = true },
+        Triple("画像をインポート…", "") { imageImportLauncher.launch(arrayOf("image/*")) },
+        Triple("PNG書き出し…", "") { pngLauncher.launch("export.png") },
+    )
 }
