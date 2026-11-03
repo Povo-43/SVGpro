@@ -182,6 +182,20 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            listOf("center" to "中央", "inside" to "内側", "outside" to "外側").forEach { (v, label) ->
+                val selected = hasSel && editor.selectionStrokeAlignment() == v
+                AssistChip(
+                    onClick = { if (hasSel) editor.applyStrokeAlignmentToSelection(v) },
+                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    colors = if (selected) {
+                        AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                    } else {
+                        AssistChipDefaults.assistChipColors()
+                    },
+                )
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf(
                 null to "実線",
                 listOf(6.0, 4.0) to "破線",

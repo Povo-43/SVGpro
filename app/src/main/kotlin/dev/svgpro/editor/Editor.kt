@@ -1277,6 +1277,30 @@ class Editor {
         }
     }
 
+    /** 線の位置調整（center=中央 / inside=内側 / outside=外側）。data-svgpro-stroke-align 属性で保持。 */
+    fun applyStrokeAlignmentToSelection(alignment: String) {
+        if (selection.isEmpty()) return
+        commit("stroke-align") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (alignment.equals("center", true)) {
+                    StyleUtil.removeProperty(el, "data-svgpro-stroke-align")
+                    el.setAttr("data-svgpro-stroke-align", null)
+                } else {
+                    StyleUtil.setProperty(el, "data-svgpro-stroke-align", alignment.lowercase())
+                }
+            }
+        }
+    }
+
+    /** 選択要素の線位置調整値を取得（未設定なら center） */
+    fun selectionStrokeAlignment(): String {
+        return selection.firstOrNull()?.let { v ->
+            val a = StyleUtil.getProperty(it, "data-svgpro-stroke-align")
+            if (a == null) "center" else a
+        } ?: "center"
+    }
+
     fun applyOpacityToSelection(opacity: Double) {
         if (selection.isEmpty()) return
         commit("opacity") { batch ->

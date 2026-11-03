@@ -16,6 +16,7 @@ import dev.svgpro.core.geom.Matrix
 import dev.svgpro.core.model.Paint as SvgPaint
 import dev.svgpro.core.model.Shapes
 import dev.svgpro.core.model.StyleUtil
+import dev.svgpro.core.ops.GeometryOps
 import dev.svgpro.core.path.PathData
 import dev.svgpro.core.path.Seg
 import dev.svgpro.core.svg.Element
@@ -146,7 +147,14 @@ class SvgRenderer {
             join(el)?.let { strokePaint.strokeJoin = it }
             dash(el)?.let { strokePaint.pathEffect = it }
             strokePaint.alpha = (strokePaint.alpha * elementOpacity).toInt().coerceIn(0, 255)
-            canvas.drawPath(path, strokePaint)
+            // 線の位置調整（内側/中央/外側）。オフセット距離は user 単位。
+            val align = StyleUtil.getProperty(el, "data-svgpro-stroke-align")
+            val strokeGeo = when (align) {
+                "inside" -> GeometryOps.offset(geo, -width / 2.0, 0.02 / editor.zoom.coerceAtLeast(0.01)) ?: geo
+                "outside" -> GeometryOps.offset(geo, width / 2.0, 0.02 / editor.zoom.coerceAtLeast(0.01)) ?: geo
+                else -> geo
+            }
+            canvas.drawPath(toAndroidPath(strokeGeo), strokePaint)
         }
     }
 
