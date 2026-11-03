@@ -131,6 +131,14 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             showContextMenu = true
         }
     }
+
+    // アニメーション再生中は keyframeTimeMs が毎フレーム変化するため、
+    // CanvasView を invalidate して onDraw 内の applyAnimationAt を走らせる。
+    LaunchedEffect(editor.keyframeTimeMs) {
+        if (editor.isKeyframePlaying) {
+            canvasView.invalidate()
+        }
+    }
     LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
     // refreshの変化で本文を再構成させる（BackHandlerのdirty等の購読）。

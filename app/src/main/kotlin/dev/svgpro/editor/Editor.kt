@@ -433,8 +433,8 @@ class Editor {
         notifyChanged()
     }
 
-    /** 編集が許可されるか。閲覧専用モード時は false。 */
-    fun isEditable(): Boolean = !viewOnlyMode
+    /** 編集が許可されるか。閲覧専用モード時またはアニメーション再生時は false。 */
+    fun isEditable(): Boolean = !viewOnlyMode && !isKeyframePlaying
 
     // ―――― アニメーションモード（カテゴリ14: SVGアニメーション対応） ――――
 
@@ -701,8 +701,8 @@ class Editor {
     /** キーフレームアニメーションをシーク（ミリ秒） */
     fun seekKeyframeAnimation(timeMs: Long) {
         keyframeTimeMs = timeMs.coerceIn(0, keyframeDurationMs)
-        applyAnimationAt(keyframeTimeMs)
-        notifyChanged()
+        // アニメーション再生中はUndo/Trace再構築・dirtyフラグを立てない（毎フレーム呼ばれるため軽量化）。
+        // CanvasView.onDraw 側で applyAnimationAt / clearAnimationOverrides を行う。
     }
 
     /** ドキュメントからキーフレームトラックを読み込む（data-svgpro-keyframes 属性） */

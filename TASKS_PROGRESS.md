@@ -58,6 +58,7 @@ PDF生成は依存ライブラリ不在・オフラインのため未実装（�
 | 43 | SVGアニメーション（SMIL <animate>/<animateTransform>/<animateMotion>/<set> 再生・編集タイムライン） | 14. SVG固有 | (本コミット) |
 | 44 | アニメーションモード／通常モード切り替え UI | 14. SVG固有 / 18. UI操作性 | (本コミット) |
 | 45 | キーフレームアニメーション拡張（ベジェイージング/モーションパス/親子関係/モーションブラー/タイムリマッピング/マーカー） | 14. SVG固有 | (本コミット) |
+| 46 | アニメーション再生の軽量化・安定化（notifyChanged削除/編集ブロック/Canvas連携） | 14. SVG固有 | (本コミット) |
 
 ## 本作業で修整したバグ
 
@@ -68,6 +69,8 @@ PDF生成は依存ライブラリ不在・オフラインのため未実装（�
 | B3 | AnimationPanel.kt コンパイルエラー | `background()`/`clip()` 未解決 → `Surface` に置換、`Long/Double` 型不一致修正 |
 | B4 | CanvasView.onDraw アニメーション未適用 | `applyAnimationAt()`/`clearAnimationOverrides()` を描画前後に統合 |
 | B5 | AnimationTrack/Keyframe データクラス互換性 | `easing` 文字列 → `easeType`+`bezier` 構造体に変更、`loadKeyframesFromDocument`/`saveKeyframesToDocument` でシリアライズ対応 |
+| B6 | アニメーション再生中の毎フレームUI再構成 | `seekKeyframeAnimation` から `notifyChanged()` を削除し軽量化。EditorScreen で `keyframeTimeMs` 変化時に `canvasView.invalidate()` |
+| B7 | アニメーション再生中の編集競合 | `isEditable()` で `isKeyframePlaying` 時も false を返すよう修正 |
 
 ## 未実装の After Effects 級機能（メモ）
 
@@ -90,6 +93,7 @@ PDF生成は依存ライブラリ不在・オフラインのため未実装（�
 - タイムリマッピング（再生速度倍率・逆再生対応）
 - タイムラインマーカー（時間目印・ラベル）
 - キーフレーム編集（追加/削除/イージング変更/プロパティスナップショット）
+- アニメーション再生中の編集ブロック（属性一時書き換えとの競合防止）
 
 ## 既存実装（TASKS.md の大部分をカバー）
 
