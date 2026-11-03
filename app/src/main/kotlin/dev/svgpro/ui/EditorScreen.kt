@@ -1190,7 +1190,10 @@ fun openDocument(vm: EditorViewModel, uri: android.net.Uri) {
     try {
         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
         val text = resolver.openInputStream(uri)?.use { stream ->
-            BufferedReader(java.io.InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+            val input = if (uri.lastPathSegment?.endsWith(".svgz", ignoreCase = true) == true) {
+                java.util.zip.GZIPInputStream(stream)
+            } else stream
+            BufferedReader(java.io.InputStreamReader(input, Charsets.UTF_8)).use { it.readText() }
         } ?: return
         val doc = dev.svgpro.core.svg.SvgLoader.load(::tokenSourceOf, text)
         if (doc != null) {
@@ -1207,7 +1210,12 @@ fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor) {
     try {
         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
         resolver.openOutputStream(uri, "wt")?.use { out ->
-            out.write(editor.doc.serialize().toByteArray(Charsets.UTF_8))
+            val bytes = editor.doc.serialize().toByteArray(Charsets.UTF_8)
+            if (uri.lastPathSegment?.endsWith(".svgz", ignoreCase = true) == true) {
+                java.util.zip.GZIPOutputStream(out).use { gzos -> gzos.write(bytes) }
+            } else {
+                out.write(bytes)
+            }
         }
     } catch (e: Exception) {
         e.printStackTrace()
