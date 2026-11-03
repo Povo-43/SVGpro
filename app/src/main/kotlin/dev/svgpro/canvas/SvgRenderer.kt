@@ -372,6 +372,29 @@ class SvgRenderer {
         }
         // 複数行（tspanによる折返しは簡易対応: text全体を1行で描画）
         canvas.drawText(content, x, y, textPaint)
+        // テキスト装飾（下線・取り消し線）
+        val decoration = StyleUtil.getProperty(el, "text-decoration")
+        if (decoration.isNotEmpty()) {
+            val textWidth = textPaint.measureText(content)
+            val lineX = when (anchor) {
+                "middle" -> x - textWidth / 2
+                "end" -> x - textWidth
+                else -> x
+            }
+            val lineRight = lineX + textWidth
+            val decoList = decoration.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textPaint.color
+                strokeWidth = (fontSize * 0.1).coerceAtLeast(1f)
+                style = Paint.Style.STROKE
+            }
+            if ("underline" in decoList) {
+                canvas.drawLine(lineX, y + fontSize * 0.15f, lineRight, y + fontSize * 0.15f, linePaint)
+            }
+            if ("line-through" in decoList) {
+                canvas.drawLine(lineX, y - fontSize * 0.35f, lineRight, y - fontSize * 0.35f, linePaint)
+            }
+        }
     }
 
     private fun typeface(el: Element): android.graphics.Typeface {
