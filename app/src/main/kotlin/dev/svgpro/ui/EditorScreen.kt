@@ -76,6 +76,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var contextMenuPos by remember { mutableStateOf(FloatArray(2)) }
     var showParametricShape by remember { mutableStateOf(false) }
     var showChart by remember { mutableStateOf(false) }
+    var showMacroRecorder by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -222,6 +223,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onShortcutCustomize = { showShortcutCustomize = true },
                 onParametricShape = { showParametricShape = true },
                 onChart = { showChart = true },
+                onMacroRecorder = { showMacroRecorder = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -395,6 +397,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             ChartDialog(editor = editor, onDismiss = { showChart = false })
         }
 
+        if (showMacroRecorder) {
+            MacroRecorderDialog(editor = editor, onDismiss = { showMacroRecorder = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -544,6 +550,7 @@ private fun TopBar(
     onShortcutCustomize: () -> Unit,
     onParametricShape: () -> Unit,
     onChart: () -> Unit,
+    onMacroRecorder: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -658,6 +665,11 @@ private fun TopBar(
                         text = { Text("チャート/グラフ生成…") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onChart() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("マクロ記録…") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onMacroRecorder() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },

@@ -1259,6 +1259,79 @@ fun ChartDialog(editor: Editor, onDismiss: () -> Unit) {
     )
 }
 
+/** マクロ記録・再生ダイアログ（カテゴリ17）。 */
+@Composable
+fun MacroRecorderDialog(editor: Editor, onDismiss: () -> Unit) {
+    var macroName by remember { mutableStateOf("") }
+
+    fun create() {
+        val name = macroName.takeIf { it.isNotBlank() } ?: "マクロ ${editor.macros.size + 1}"
+        editor.startMacroRecording(name)
+        onDismiss()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("マクロ記録・再生") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("マクロ名", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+                    OutlinedTextField(
+                        value = macroName,
+                        onValueChange = { macroName = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (editor.isRecordingMacro) {
+                    Text(
+                        "記録中: ${editor.currentMacroName ?: ""}（操作を行うと記録されます）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(onClick = { editor.stopMacroRecording() }) {
+                        Text("記録停止・保存", style = MaterialTheme.typography.labelSmall)
+                    }
+                } else {
+                    TextButton(onClick = create) {
+                        Text("記録開始", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Divider()
+                Text("保存済みマクロ", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                if (editor.macros.isEmpty()) {
+                    Text("マクロはありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    editor.macros.withIndex().forEach { (i, macro) ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                "${macro.name} (${macro.steps.size}ステップ)",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { editor.playMacro(i) }) {
+                                Text("再生", style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { editor.deleteMacro(i) }) {
+                                Text("削除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
+
 /** RGB(ARGB) → CMYK（各値 0.0〜1.0）。 */
 private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
     val r = ((argb shr 16) and 0xFF) / 255.0

@@ -805,6 +805,7 @@ class Editor {
         val cs = batch.endAndCommit(label)
         if (cs != null) {
             undoStack.push(cs)
+            recordMacroStep(label, cs)
             notifyChanged()
         }
     }
@@ -2257,6 +2258,136 @@ class Editor {
         map["currentArtboardIndex"] = currentArtboardIndex
         map["guides"] = doc.root.attr(Guide.ATTR)
         return dev.svgpro.core.util.Json.stringify(map)
+    }
+
+    // ―――― マクロ記録・再生（カテゴリ17） ――――
+
+    /** マクロの1ステップ（ラベル＋ChangeSetのスナップショット） */
+    data class MacroStep(val label: String, val changesetJson: String)
+
+    /** 保存済みマクロ */
+    data class Macro(val name: String, val steps: List<MacroStep>)
+
+    /** マクロレコーダー状態 */
+    var isRecordingMacro = false
+        private set
+    var currentMacroName: String? = null
+        private set
+    private var currentMacroSteps = mutableListOf<MacroStep>()
+
+    /** 保存済みマクロ一覧 */
+    val macros = mutableListOf<Macro>()
+
+    /** マクロ記録を開始する */
+    fun startMacroRecording(name: String) {
+        isRecordingMacro = true
+        currentMacroName = name
+        currentMacroSteps.clear()
+        notifyChanged()
+    }
+
+    /** マクロ記録を停止し、保存する */
+    fun stopMacroRecording(): Boolean {
+        if (!isRecordingMacro || currentMacroName == null) return false
+        val macro = Macro(currentMacroName!!, currentMacroSteps.toList())
+        macros.removeAll { it.name == currentMacroName }
+        macros.add(macro)
+        isRecordingMacro = false
+        currentMacroName = null
+        currentMacroSteps.clear()
+        notifyChanged()
+        return true
+    }
+
+    /** マクロを記録中に ChangeSet を1ステップとして記録する（commit から呼ばれる） */
+    private fun recordMacroStep(label: String, cs: dev.svgpro.core.edit.ChangeSet) {
+        if (!isRecordingMacro) return
+        // ChangeSet の変更内容を JSON 化して記録（undo/redo に依存せず再生可能にするため）
+        val steps = cs.changes.mapIndexed { i, c ->
+            when (c) {
+                is dev.svgpro.core.edit.AttrChange -> {
+                    mapOf(
+                        "type" to "attr",
+                        "index" to i,
+                        "label" to c.label ?: "",
+                        "key" to c.key,
+                        "oldV" to c.oldV,
+                        "newV" to c.newV,
+                    )
+                }
+                is dev.svgpro.core.edit.Detach -> {
+                    mapOf(
+                        "type" to "detach",
+                        "index" to i,
+                        "label" to c.label ?: "",
+                    )
+                }
+                is dev.svgpro.core.edit.Attach -> {
+                    mapOf(
+                        "type" to "attach",
+                        "index" to i,
+                        "label" to c.label ?: "",
+                    )
+                }
+                else -> mapOf("type" to "other", "index" to i, "label" to c.label ?: "")
+            }
+        }
+        currentMacroSteps.add(MacroStep(label, dev.svgpro.core.util.Json.stringify(steps)))
+    }
+
+    /** 保存済みマクロを再生する。各ステップの変更を再適用する。 */
+    fun playMacro(index: Int) {
+        if (index < 0 || index >= macros.size) return
+        val macro = macros[index]
+        val batch = EditBatch()
+        for (step in macro.steps) {
+            try {
+                val steps = dev.svgpro.core.util.Json.parse(step.changesetJson) as? List<*> ?: continue
+                for (s in steps) {
+                    val m = s as? Map<*, *> ?: continue
+                    val type = m["type"] as? String
+                    when (type) {
+                        "attr" -> {
+                            // 対象要素を特定：label またはインデックスから現在の選択/ドキュメントを探す
+                            // ここではシンプルに、doc.root から一致する属性変更を探して適用
+                            val key = m["key"] as? String ?: continue
+                            val newV = m["newV"] as? String
+                            // 該当する要素を doc.root から走査して属性を変更（簡易実装）
+                            applyAttrChangeToDoc(key, newV, batch)
+                        }
+                        else -> {}
+                    }
+                }
+            } catch (e: Exception) {
+                // スキップ
+            }
+        }
+        val cs = batch.endAndCommit("play macro: ${macro.name}")
+        if (cs != null) {
+            undoStack.push(cs)
+            notifyChanged()
+            notifySelection()
+        }
+    }
+
+    /** ドキュメント内で属性変更を再適用する（マクロ再生用・簡易実装） */
+    private fun applyAttrChangeToDoc(key: String, newV: String?, batch: dev.svgpro.core.edit.EditBatch) {
+        // 選択中の要素に優先して適用
+        val targets = if (selection.isNotEmpty()) selection else listOf(doc.root)
+        for (el in targets) {
+            if (el.hasAttr(key) || key == "fill" || key == "stroke") {
+                batch.touch(el)
+                el.setAttr(key, newV)
+            }
+        }
+    }
+
+    /** マクロを削除する */
+    fun deleteMacro(index: Int) {
+        if (index in macros.indices) {
+            macros.removeAt(index)
+            notifyChanged()
+        }
     }
 }
 
