@@ -127,6 +127,11 @@ class UndoStack(val limit: Int = 400) {
     val canUndo: Boolean get() = undo.isNotEmpty()
     val canRedo: Boolean get() = redo.isNotEmpty()
 
+    /** Undo履歴の一覧（古い→新しい）。履歴パネル表示用。 */
+    val undoHistory: List<ChangeSet> get() = undo.toList()
+    /** Redo履歴の一覧（新しい→古い）。 */
+    val redoHistory: List<ChangeSet> get() = redo.toList()
+
     fun push(cs: ChangeSet) {
         if (cs.changes.isEmpty()) return
         undo.add(cs)
@@ -154,6 +159,17 @@ class UndoStack(val limit: Int = 400) {
     fun clear() {
         undo.clear()
         redo.clear()
+    }
+
+    /**
+     * Undoスタックのサイズを targetSize にする（履歴パネルからの任意時点復帰用）。
+     * targetSize=0 は全てundo、targetSize=undo.size は何もしない。
+     */
+    fun undoToSize(targetSize: Int) {
+        val t = targetSize.coerceIn(0, undo.size)
+        while (undo.size > t) {
+            undo()
+        }
     }
 }
 

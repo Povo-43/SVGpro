@@ -188,6 +188,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSettings = { showDocSettings = true },
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
+                onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
             // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
@@ -445,6 +446,7 @@ private fun TopBar(
     onSettings: () -> Unit,
     onSvgSource: () -> Unit,
     onSvgOptimize: () -> Unit,
+    onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onSave: () -> Unit,
@@ -547,6 +549,10 @@ private fun TopBar(
             BarIconButton(
                 AppIcons.Palette, "プロパティ",
                 active = activePanel == "props", onClick = { onPanel("props") },
+            )
+            BarIconButton(
+                AppIcons.Edit, "履歴",
+                active = activePanel == "history", onClick = { onPanel("history"); onHistory() },
             )
             BarDivider()
             BarIconButton(AppIcons.Save, "保存", onClick = onSave)
@@ -770,7 +776,82 @@ private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh
 @Composable
 private fun panelTitle(panel: String?): String = when (panel) {
     "layers" -> "レイヤー / オブジェクト"
+    "history" -> "操作履歴"
     else -> "プロパティ"
+}
+
+/** 操作履歴パネル */
+@Composable
+private fun HistoryPanel(editor: Editor, refresh: Int) {
+    val stack = editor.undoStack
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spaceBetween,
+        ) {
+            Text("Undo 履歴", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            Text("可 Undo=${stack.canUndo} Redo=${stack.canRedo}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (stack.undoHistory.isEmpty()) {
+            Text("履歴はありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            stack.undoHistory.reversed().forEachIndexed { i, cs ->
+                val targetSize = stack.undoHistory.size - i // 新しい順に並べた位置から逆算
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spaceBetween,
+                ) {
+                    Text(
+                        cs.label ?: "操作",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = { stack.undoToSize(targetSize.coerceAtLeast(0)) },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) { Text("復帰", style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spaceBetween,
+        ) {
+            Text("Redo 履歴", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+            Text("件数=${stack.redoHistory.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (stack.redoHistory.isEmpty()) {
+            Text("redo 履歴はありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            stack.redoHistory.forEachIndexed { i, cs ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spaceBetween,
+                ) {
+                    Text(
+                        cs.label ?: "操作",
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            // redo は最新側から順に適用：redoHistory[0] が最新
+                            stack.undoToSize(stack.undoHistory.size + i + 1)
+                        },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) { Text("復帰", style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+        }
+    }
 }
 
 /** expanded時の右ドックパネル */
@@ -804,6 +885,7 @@ private fun SidePanel(
             Box(Modifier.weight(1f)) {
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
+                    "history" -> HistoryPanel(editor, refresh)
                     else -> PropertiesPanel(editor, refresh)
                 }
             }
@@ -855,6 +937,7 @@ private fun SheetPanel(
             Box(Modifier.heightIn(max = maxHeight - 44.dp)) {
                 when (panel) {
                     "layers" -> LayersPanel(editor, refresh)
+                    "history" -> HistoryPanel(editor, refresh)
                     else -> PropertiesPanel(editor, refresh)
                 }
             }

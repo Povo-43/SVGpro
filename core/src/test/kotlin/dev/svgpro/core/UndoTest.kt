@@ -9,7 +9,9 @@ import dev.svgpro.core.svg.Text
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class UndoTest {
@@ -113,5 +115,34 @@ class UndoTest {
         batch.touch(rect)
         // 何も変えない
         assertNull(batch.endAndCommit("noop"))
+    }
+
+    @Test
+    fun undo_history_exposes_list() {
+        val doc = makeDoc()
+        val rect = doc.root.firstByTag("rect")!!
+        val stack = UndoStack()
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "11")), "set 11"))
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "12")), "set 12"))
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "13")), "set 13"))
+        assertEquals(3, stack.undoHistory.size)
+        assertEquals("set 13", stack.undoHistory.last().label)
+        assertEquals("set 11", stack.undoHistory.first().label)
+    }
+
+    @Test
+    fun undo_to_size_jumps_to_history_entry() {
+        val doc = makeDoc()
+        val rect = doc.root.firstByTag("rect")!!
+        val stack = UndoStack()
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "11")), "set 11"))
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "12")), "set 12"))
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "13")), "set 13"))
+        // index 1（2番目="set 12"）の状態まで巻き戻す → スタックサイズ 2 に
+        stack.undoToSize(2)
+        assertEquals(2, stack.undoHistory.size)
+        assertEquals("12", rect.attr("x"))
+        // redoスタックには巻き戻し分が移動
+        assertTrue(stack.canRedo)
     }
 }
