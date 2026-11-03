@@ -487,6 +487,17 @@ class Editor {
     var curStarPoints = 5
     var curTextSize = 24.0
 
+    // カラースウォッチ（選択色を登録・再利用）
+    val colorSwatches = mutableStateListOf(0xFF1473E6.toInt(), 0xFF22B573.toInt(), 0xFFF5A623.toInt(), 0xFFE03E3E.toInt(), 0xFF9B5DE5.toInt())
+
+    fun addColorSwatch(argb: Int) {
+        if (!colorSwatches.contains(argb)) colorSwatches.add(argb)
+    }
+
+    fun removeColorSwatch(index: Int) {
+        if (index in colorSwatches.indices) colorSwatches.removeAt(index)
+    }
+
     // ―――― グラデーション編集 ――――
     /** 現在編集中のグラデーション（GRADIENTツール使用時） */
     var gradientEdit: GradientEditState? = null

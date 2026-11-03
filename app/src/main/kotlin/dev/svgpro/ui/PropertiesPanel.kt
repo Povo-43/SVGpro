@@ -72,7 +72,20 @@ import dev.svgpro.editor.setGradientStopColor
 @Composable
 fun PropertiesPanel(editor: Editor, refresh: Int) {
     var colorDialogTarget by remember { mutableStateOf<String?>(null) } // "fill" | "stroke"
+    var colorSwatchTarget by remember { mutableStateOf("fill") } // "fill" | "stroke"
     var offsetDialog by remember { mutableStateOf(false) }
+
+    fun onColorSwatch(argb: Int) {
+        val paint = Paint.Solid(argb)
+        if (hasSel) {
+            if (colorSwatchTarget == "fill") editor.applyFillToSelection(paint)
+            else editor.applyStrokeToSelection(paint)
+        } else {
+            if (colorSwatchTarget == "fill") { editor.curFill = paint; editor.onChanged() }
+            else { editor.curStroke = paint; editor.onChanged() }
+        }
+    }
+
     var textDialog by remember { mutableStateOf(false) }
     var transformDialog by remember { mutableStateOf(false) }
     var alignRelative by remember { mutableStateOf(AlignRelative.SELECTION) }
@@ -108,6 +121,30 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
             CompactButton("円形") {
                 val id = ensureGradient(editor, radial = true)
                 if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
+            }
+        }
+        // スウォッチ
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("スウォッチ", style = MaterialTheme.typography.labelMedium)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(selected = colorSwatchTarget == "fill", onClick = { colorSwatchTarget = "fill" }, label = { Text("塗り", style = MaterialTheme.typography.labelSmall) })
+                FilterChip(selected = colorSwatchTarget == "stroke", onClick = { colorSwatchTarget = "stroke" }, label = { Text("線", style = MaterialTheme.typography.labelSmall) })
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            editor.colorSwatches.forEachIndexed { i, argb ->
+                Box(
+                    Modifier
+                        .size(20.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(androidx.compose.ui.graphics.Color(argb))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                        .clickable { onColorSwatch(argb) },
+                )
+            }
+            CompactButton("＋登録", filled = false) {
+                val c = if (hasSel) editor.selectionFill() else editor.curFill
+                (c as? Paint.Solid)?.let { editor.addColorSwatch(it.argb) }
             }
         }
 
