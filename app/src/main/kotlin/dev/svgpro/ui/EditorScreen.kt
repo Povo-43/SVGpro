@@ -250,6 +250,45 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onFontToPath = { showFontToPath = true },
             )
 
+            // タブレット・デスクトップ向けPCライクメニューバー（拡張サイズ時のみ表示）
+            if (isExpanded) {
+                MenuBar(
+                    editor = editor,
+                    refresh = refresh,
+                    onNew = { showNewDoc = true },
+                    onOpen = { openLauncher.launch(arrayOf("image/svg+xml", "text/plain", "text/xml", "*/*")) },
+                    onSave = { doSave() },
+                    onSaveAs = { createLauncher.launch(editor.documentName) },
+                    onExportPng = { pngLauncher.launch("export.png") },
+                    onUndo = { editor.undo() },
+                    onRedo = { editor.redo() },
+                    onCopy = { editor.copySelection() },
+                    onCut = { editor.cutSelection() },
+                    onPaste = { editor.pasteFromClipboard(inPlace = false) },
+                    onDelete = { editor.deleteSelection() },
+                    onDuplicate = { editor.duplicateSelection() },
+                    onSelectAll = {
+                        editor.selectAllInBox(
+                            Bounds(Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY),
+                            additive = false,
+                        )
+                    },
+                    onInvertSelection = { editor.invertSelection() },
+                    onGroup = { editor.groupSelection() },
+                    onUngroup = { editor.ungroupSelection() },
+                    onGrid = { editor.showGrid = !editor.showGrid; editor.onChanged() },
+                    onSnap = { editor.snapToGrid = !editor.snapToGrid; editor.onChanged() },
+                    onRulers = { editor.showRulers = !editor.showRulers; editor.onChanged() },
+                    onOutline = { editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
+                    onText = {
+                        pendingTextPos = null
+                        showTextCreate = true
+                    },
+                    onShortcuts = { showShortcuts = true },
+                    onFontToPath = { showFontToPath = true },
+                )
+            }
+
             // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
             // こうするとpenDraftの変化がstrong skippingを介しても確実に反映される）
             val penDraftActive = editor.penDraft != null
@@ -853,25 +892,31 @@ private fun BarIconButton(
         else androidx.compose.ui.graphics.Color.Transparent,
         label = "barBg",
     )
-    Box(
-        Modifier
-            .size(UiMetrics.BarButton)
-            .clip(RoundedCornerShape(UiMetrics.Corner))
-            .background(bg)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = desc,
-            modifier = Modifier.size(UiMetrics.Icon),
-            tint = when {
-                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                active -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-        )
-    }
+    LongPressTooltip(
+        hint = desc,
+        content = {
+            Box(
+                Modifier
+                    .size(UiMetrics.BarButton)
+                    .clip(RoundedCornerShape(UiMetrics.Corner))
+                    .background(bg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = desc,
+                    modifier = Modifier.size(UiMetrics.Icon),
+                    tint = when {
+                        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        active -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+        },
+        onClick = onClick,
+        enabled = enabled,
+    )
 }
 
 @Composable
@@ -1018,21 +1063,27 @@ private fun ToolButton(editor: Editor, refresh: Int, tool: ToolType, icon: Image
         if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
         label = "toolBg",
     )
-    Box(
-        Modifier
-            .size(UiMetrics.ToolButton)
-            .clip(RoundedCornerShape(UiMetrics.Corner))
-            .background(bg)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = toolLabel(tool),
-            modifier = Modifier.size(UiMetrics.Icon),
-            tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-        )
-    }
+    val label = toolLabel(tool)
+    LongPressTooltip(
+        hint = label,
+        content = {
+            Box(
+                Modifier
+                    .size(UiMetrics.ToolButton)
+                    .clip(RoundedCornerShape(UiMetrics.Corner))
+                    .background(bg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(UiMetrics.Icon),
+                    tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        },
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -1043,21 +1094,26 @@ private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh
         else androidx.compose.ui.graphics.Color.Transparent,
         label = "toggleBg",
     )
-    Box(
-        Modifier
-            .size(UiMetrics.ToolButton)
-            .clip(RoundedCornerShape(UiMetrics.Corner))
-            .background(bg)
-            .clickable(onClick = onToggle),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            icon,
-            contentDescription = desc,
-            modifier = Modifier.size(17.dp),
-            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    LongPressTooltip(
+        hint = desc,
+        content = {
+            Box(
+                Modifier
+                    .size(UiMetrics.ToolButton)
+                    .clip(RoundedCornerShape(UiMetrics.Corner))
+                    .background(bg),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = desc,
+                    modifier = Modifier.size(17.dp),
+                    tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        onClick = onToggle,
+    )
 }
 
 // ―――― パネル ――――
