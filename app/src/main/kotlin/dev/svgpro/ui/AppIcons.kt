@@ -10,9 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
@@ -232,9 +229,9 @@ object AppIcons {
     val Edit: ImageVector = Icons.Filled.Edit
     val MenuIcon: ImageVector = Icons.Filled.Menu
     val More: ImageVector = Icons.Filled.MoreVert
-    val ContentCopy: ImageVector = Icons.Filled.ContentCopy
-    val ContentCut: ImageVector = Icons.Filled.ContentCut
-    val ContentPaste: ImageVector = Icons.Filled.ContentPaste
+    val ContentCopy: ImageVector = icon("ContentCopy", "M16,1 H4 C2.9,1 2,1.9 2,3 L2,17 C2,18.1 2.9,19 4,19 L16,19 C17.1,19 18,18.1 18,17 L18,16 L13,16 L13,8 L16,8 C17.1,8 18,8.9 18,10 C18,11.1 17.1,12 16,12 L9,12 C7.9,12 7,11.1 7,10 C7,8.9 7.9,8 9,8 L15,8 L15,11 C15,11.6 14.6,12 14,12 L9,12 C8.4,12 8,11.6 8,11 C8,10.4 8.4,10 9,10 L14,10 L14,3 C14,1.9 13.1,1 12,1 H4 C2.9,1 2,1.9 2,3 L2,21 C2,22.1 2.9,23 4,23 L16,23 C17.1,23 18,22.1 18,21 L18,19 L15,19 L15,13 L18,13 C18.1,13 19,13.9 19,15 C19,16.1 18.1,17 17,17 L8,17 C6.9,17 6,16.1 6,15 C6,13.9 6.9,13 8,13 L13,13 L13,17 C13,18.1 13.9,19 15,19 L18,19 C19.1,19 20,18.1 20,17 L20,3 C20,1.9 19.1,1 18,1 Z")
+    val ContentCut: ImageVector = icon("ContentCut", "M3,13 C2.4,13 2,12.6 2,12 L2,8 C2,7.4 2.4,7 3,7 L11,7 C11.6,7 12,7.4 12,8 L12,11 H17 C17.6,11 18,11.4 18,12 C18,12.6 17.6,13 17,13 H12 L9.2,15.8 C9,16 8.6,16 8.2,15.8 C7.8,15.4 7.6,14.8 7.6,14.2 L7.6,9 L3,9 C2.4,9 2,8.6 2,8 L2,1 C2,0.4 2.4,0 3,0 L17,0 C17.6,0 18,0.4 18,1 L18,5 C18,5.6 17.6,6 17,6 L14,6 L14,12 C14,12.6 13.6,13 13,13 L3,13 Z M19,15 C19,15.6 18.6,16 18,16 H14 C13.4,16 13,15.6 13,15 L13,12 L16,12 L16,15 H18 C18.6,15 19,15.4 19,16 Z")
+    val ContentPaste: ImageVector = icon("ContentPaste", "M19,3 H5 C3.9,3 3,3.9 3,5 V19 C3,20.1 3.9,21 5,21 H19 C20.1,21 21,20.1 21,19 V5 C21,3.9 20.1,3 19,3 Z M19,5 V17 H5 V5 H19 Z M12,7 L9,10 L9,14 L12,14 L12,17 L15,17 L15,14 L12,14 L12,10 L15,10 L15,7 L12,7 Z")
     val ImageImport: ImageVector = icon(
         "ImageImport",
         "M19,3H5C3.9,3 3,3.9 3,5V19C3,20.1 3.9,21 5,21H19C20.1,21 21,20.1 21,19V5C21,3.9 20.1,3 19,3Z M19,5V17H5V5H19Z M12,7L9,10L9,14L12,14L12,17L15,17L15,14L12,14L12,10L15,10L15,7L12,7Z",

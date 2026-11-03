@@ -336,7 +336,7 @@ fun Editor.selectChildren() {
 /** 投げ縄パス（画面座標）の内部にある要素を選択する。 */
 fun Editor.selectInLasso(screenPoints: List<Vec>) {
     if (screenPoints.size < 3) return
-    val path = Path()
+    val path = android.graphics.Path()
     val firstUser = screenToUser(screenPoints[0])
     path.moveTo(firstUser.x.toFloat(), firstUser.y.toFloat())
     for (i in 1 until screenPoints.size) {
@@ -344,6 +344,8 @@ fun Editor.selectInLasso(screenPoints: List<Vec>) {
         path.lineTo(p.x.toFloat(), p.y.toFloat())
     }
     path.close()
+    val region = android.graphics.Region()
+    region.setPath(path, android.graphics.Region(0, 0, 20000, 20000))
     val newSel = ArrayList<Element>()
     for (item in trace.items) {
         if (!item.visible || item.locked) continue
@@ -353,7 +355,7 @@ fun Editor.selectInLasso(screenPoints: List<Vec>) {
             Vec(b.x, b.y), Vec(b.right, b.y), Vec(b.right, b.bottom), Vec(b.x, b.bottom),
             Vec(b.centerX, b.centerY)
         )
-        if (pts.any { path.contains(it.x.toFloat(), it.y.toFloat()) }) {
+        if (pts.any { p -> region.contains(p.x.toInt(), p.y.toInt()) }) {
             newSel.add(item.el)
         }
     }

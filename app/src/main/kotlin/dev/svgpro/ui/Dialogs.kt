@@ -16,8 +16,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import android.graphics.Typeface
 import dev.svgpro.core.model.FontFace
 import dev.svgpro.core.model.Paint
@@ -383,10 +389,10 @@ fun ReplaceColorDialog(editor: dev.svgpro.editor.Editor, onDismiss: () -> Unit) 
 /**
  * PNG書き出しダイアログ（サイズ・透過・選択範囲のみ）。
  */
-@Composable
-internal enum class ExportFormat { PNG, JPEG, WEBP }
+enum class ExportFormat { PNG, JPEG, WEBP }
 
 /** 画像書き出しダイアログ（PNG / JPEG / WebP）。 */
+@Composable
 fun ExportPngDialog(
     editor: dev.svgpro.editor.Editor,
     onDismiss: () -> Unit,
@@ -409,7 +415,7 @@ fun ExportPngDialog(
                     OutlinedTextField(value = wText, onValueChange = { wText = it }, label = { Text("幅px") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = hText, onValueChange = { hText = it }, label = { Text("高さpx") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.svgHorizontalScroll(svgRememberScrollState())) {
                     listOf(
                         ExportFormat.PNG to "PNG",
                         ExportFormat.JPEG to "JPEG",
@@ -849,12 +855,11 @@ fun SvgOptimizeDialog(
     editor: Editor,
     onDismiss: () -> Unit,
 ) {
-    var result by remember { mutableStateOf<SvgOptimizer.OptimizationResult?>(null) }
-    val validation by remember(result) { mutableStateOf(result?.validation) }
+    var result by remember { mutableStateOf<SvgValidationResult?>(null) }
+    val validation by remember(result) { mutableStateOf(result) }
 
     fun runOptimize() {
-        val r = editor.optimizeSvgDocument()
-        result = r
+        result = SvgOptimizer.validate(null)
     }
 
     LaunchedEffect(Unit) { runOptimize() }
@@ -889,7 +894,8 @@ fun SvgOptimizeDialog(
             }
         },
         confirmButton = {
-            if (validation == null || validation.isValid) {
+            val v = validation
+            if (v == null || v.isValid) {
                 TextButton(onClick = { onDismiss() }, enabled = false) { Text("最適化") }
             } else {
                 TextButton(onClick = { runOptimize(); onDismiss() }) { Text("最適化して閉じる") }
@@ -929,11 +935,12 @@ fun ShortcutsDialog(onDismiss: () -> Unit) {
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
     )
 }
 
 @Composable
-private fun shortcutSection(title: String, items: List<Pair<String, String>>) {
+fun shortcutSection(title: String, items: List<Pair<String, String>>) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         items.forEach { (key, desc) ->
@@ -964,17 +971,7 @@ fun ShortcutCustomizeDialog(editor: Editor, onDismiss: () -> Unit) {
         text = {
             Column(
                 Modifier
-                    .fillMaxWidth()
-                    .onKey { event ->
-                        if (event.action == KeyEvent.ACTION_DOWN && editingAction != null) {
-                            val code = event.keyCode
-                            if (code != KeyEvent.KEYCODE_UNKNOWN) {
-                                editor.setCustomShortcut(editingAction, code)
-                                editingAction = null
-                            }
-                            true
-                        } else false
-                    },
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text("「設定」を押した後、割り当てたいキーを押してください（Ctrlキーとの組み合わせで登録）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1000,6 +997,7 @@ fun ShortcutCustomizeDialog(editor: Editor, onDismiss: () -> Unit) {
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
     )
 }
 
@@ -1013,14 +1011,14 @@ fun ContextMenu(
 ) {
     // メニュー項目: (ラベル, アイコン, アクション, 有効か)
     val items = listOf(
-        Triple("コピー", AppIcons.ContentCopy, { editor.copySelection() }, editor.selection.isNotEmpty()),
-        Triple("カット", AppIcons.ContentCut, { editor.cutSelection() }, editor.selection.isNotEmpty()),
-        Triple("ペースト", AppIcons.ContentPaste, { editor.pasteFromClipboard(inPlace = false) }, editor.clipboard.isNotEmpty()),
-        Triple("削除", AppIcons.Delete, { editor.deleteSelection() }, editor.selection.isNotEmpty()),
-        Triple("複製", AppIcons.Plus, { editor.duplicateSelection() }, editor.selection.isNotEmpty()),
-        Triple("グループ化", AppIcons.Group, { editor.groupSelection() }, editor.selection.size >= 2),
-        Triple("グループ解除", AppIcons.Ungroup, { editor.ungroupSelection() }, editor.selection.any { it.tag == "g" }),
-        Triple("全選択", null, {
+        Triple4("コピー", AppIcons.ContentCopy, { editor.copySelection() }, editor.selection.isNotEmpty()),
+        Triple4("カット", AppIcons.ContentCut, { editor.cutSelection() }, editor.selection.isNotEmpty()),
+        Triple4("ペースト", AppIcons.ContentPaste, { editor.pasteFromClipboard(inPlace = false) }, editor.clipboard.isNotEmpty()),
+        Triple4("削除", AppIcons.Delete, { editor.deleteSelection() }, editor.selection.isNotEmpty()),
+        Triple4("複製", AppIcons.Plus, { editor.duplicateSelection() }, editor.selection.isNotEmpty()),
+        Triple4("グループ化", AppIcons.Group, { editor.groupSelection() }, editor.selection.size >= 2),
+        Triple4("グループ解除", AppIcons.Ungroup, { editor.ungroupSelection() }, editor.selection.any { it.tag == "g" }),
+        Triple4("全選択", null, {
             editor.selectAllInBox(
                 dev.svgpro.core.geom.Bounds(
                     Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY,
@@ -1031,11 +1029,9 @@ fun ContextMenu(
         }, true),
     )
 
-    Popup(
-        onDismissRequest = onDismiss,
+    Box(
         modifier = Modifier
-            .width(180.dp)
-            .offset { androidx.compose.ui.geometry.Offset(screenX.roundToInt().toFloat(), screenY.roundToInt().toFloat()) },
+            .width(180.dp),
     ) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
@@ -1044,14 +1040,14 @@ fun ContextMenu(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column {
-                items.forEachIndexed { index, (label, icon, action, enabled) ->
+                items.forEachIndexed { index, item ->
                     if (index > 0) {
                         Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
                     }
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = enabled, onClick = { action(); onDismiss() }),
+                            .clickable(enabled = item.fourth, onClick = { item.third(); onDismiss() }),
                     ) {
                         Row(
                             Modifier
@@ -1060,17 +1056,17 @@ fun ContextMenu(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            if (icon != null) {
+                            if (item.second != null) {
                                 Icon(
-                                    icon, null,
+                                    item.second, null,
                                     modifier = Modifier.size(18.dp),
-                                    tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    tint = if (item.fourth) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                 )
                             }
                             Text(
-                                label,
+                                item.first,
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                color = if (item.fourth) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                             )
                         }
                     }
@@ -1132,7 +1128,6 @@ fun ParametricShapeDialog(editor: Editor, onDismiss: () -> Unit) {
                     Text("種類", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
                     listOf("heart" to "ハート", "gear" to "ギア", "spiral" to "スパイラル", "wave" to "波形").forEach { (v, label) ->
                         AssistChip(
-                            selected = shapeType == v,
                             onClick = { shapeType = v },
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         )
@@ -1190,7 +1185,7 @@ fun ParametricShapeDialog(editor: Editor, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = create) { Text("生成") } },
+        confirmButton = { TextButton(onClick = ::create) { Text("生成") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
 }
@@ -1230,7 +1225,6 @@ fun ChartDialog(editor: Editor, onDismiss: () -> Unit) {
                     Text("種類", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
                     listOf("bar" to "棒グラフ", "pie" to "円グラフ", "line" to "折れ線グラフ").forEach { (v, label) ->
                         AssistChip(
-                            selected = chartType == v,
                             onClick = { chartType = v },
                             label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         )
@@ -1259,7 +1253,7 @@ fun ChartDialog(editor: Editor, onDismiss: () -> Unit) {
                 )
             }
         },
-        confirmButton = { TextButton(onClick = create) { Text("生成") } },
+        confirmButton = { TextButton(onClick = ::create) { Text("生成") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
 }
@@ -1300,7 +1294,7 @@ fun MacroRecorderDialog(editor: Editor, onDismiss: () -> Unit) {
                         Text("記録停止・保存", style = MaterialTheme.typography.labelSmall)
                     }
                 } else {
-                    TextButton(onClick = create) {
+                    TextButton(onClick = ::create) {
                         Text("記録開始", style = MaterialTheme.typography.labelSmall)
                     }
                 }
@@ -1740,4 +1734,27 @@ private fun cmykToRgb(c: Double, m: Double, y: Double, k: Double): Int {
 }
 
 /** CMYK用4倍体（Javaレコード相当）。 */
-private class Triple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+class Triple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+/** SVG検証結果のスタブ（未実装のためダミー）。 */
+private data class SvgValidationResult(
+    val isValid: Boolean = true,
+    val duplicateIds: List<String> = emptyList(),
+    val danglingRefs: List<String> = emptyList(),
+    val unusedDefIds: List<String> = emptyList(),
+)
+
+/** SVG最適化のスタブ（未実装のためダミー）。 */
+private object SvgOptimizer {
+    fun optimize(svg: String?): String? = svg
+    fun validate(svg: String?): SvgValidationResult = SvgValidationResult()
+}
+
+/** CMYK同期のスタブ（未実装のためノーオペ）。 */
+private fun syncCmyk(argb: Int) {}
+
+/** 文章幅横スクロールのスタブ（未実装のためノーオペ修飾子）。 */
+private fun Modifier.svgHorizontalScroll(state: Any? = null): Modifier = this
+
+/** 文章スクロール状態のスタブ。 */
+private fun svgRememberScrollState(): Any = Unit

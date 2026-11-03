@@ -1405,7 +1405,7 @@ private fun StatusBar(editor: Editor, refresh: Int) {
                 }
                 MiniZoomButton(AppIcons.Fit, "全体表示") { editor.fitToPage() }
                 MiniZoomButton(AppIcons.RotateCW, "キャンバス回転元に戻す") {
-                    editor.setCanvasRotation(0.0)
+                    editor.setCanvasRotationDeg(0.0)
                 }
                 MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 -90°") {
                     editor.rotateCanvas(-90.0)

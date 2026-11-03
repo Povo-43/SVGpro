@@ -1,6 +1,7 @@
 package dev.svgpro.editor
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.svgpro.core.edit.Attach
@@ -503,7 +504,7 @@ class Editor {
     /** 現在の塗り・線・線幅をプリセットとして保存する。 */
     fun saveStylePreset(name: String) {
         stylePresets.removeAll { it.name == name }
-        stylePresets.add(StylePreset(name, editor.curFill, editor.curStroke, editor.curStrokeWidth))
+        stylePresets.add(StylePreset(name, curFill, curStroke, curStrokeWidth))
         saveStylePresets()
         notifyChanged()
     }
@@ -512,10 +513,10 @@ class Editor {
     fun applyStylePreset(index: Int) {
         if (index in stylePresets.indices) {
             val p = stylePresets[index]
-            editor.curFill = p.fill
-            editor.curStroke = p.stroke
-            editor.curStrokeWidth = p.strokeWidth
-            editor.onChanged()
+            curFill = p.fill
+            curStroke = p.stroke
+            curStrokeWidth = p.strokeWidth
+            onChanged()
         }
     }
 
@@ -593,7 +594,7 @@ class Editor {
     }
 
     /** ビュー回転を絶対角度に設定する。 */
-    fun setCanvasRotation(deg: Double) {
+    fun setCanvasRotationDeg(deg: Double) {
         canvasRotation = ((deg % 360.0 + 360.0) % 360.0)
         onZoomChanged()
         onChanged()
@@ -639,7 +640,7 @@ class Editor {
         if (index !in doc.artboards.indices) return
         currentArtboardIndex = index
         val vb = doc.artboardViewBox(index) ?: return
-        fitRect(vb)
+        fitRect(Bounds(vb.minX, vb.minY, vb.width, vb.height))
         onChanged()
     }
 
@@ -648,7 +649,7 @@ class Editor {
         val idx = doc.addArtboard(name, x, y, w, h)
         currentArtboardIndex = idx
         val vb = doc.artboardViewBox(idx) ?: return
-        fitRect(vb)
+        fitRect(Bounds(vb.minX, vb.minY, vb.width, vb.height))
         onChanged()
     }
 
@@ -657,7 +658,7 @@ class Editor {
         if (!doc.removeArtboard(currentArtboardIndex)) return false
         if (currentArtboardIndex >= doc.artboards.size) currentArtboardIndex = doc.artboards.lastIndex
         val vb = doc.artboardViewBox(currentArtboardIndex) ?: return true
-        fitRect(vb)
+        fitRect(Bounds(vb.minX, vb.minY, vb.width, vb.height))
         onChanged()
         return true
     }
@@ -729,7 +730,7 @@ class Editor {
     val colorSwatches = mutableStateListOf(0xFF1473E6.toInt(), 0xFF22B573.toInt(), 0xFFF5A623.toInt(), 0xFFE03E3E.toInt(), 0xFF9B5DE5.toInt())
 
     fun addColorSwatch(argb: Int) {
-        if (!colorSwatches.contains(argb)) colorSwatches.add(argb)
+        if (argb !in colorSwatches) colorSwatches.add(argb)
     }
 
     fun removeColorSwatch(index: Int) {
@@ -1540,7 +1541,7 @@ class Editor {
     /** 選択要素の線位置調整値を取得（未設定なら center） */
     fun selectionStrokeAlignment(): String {
         return selection.firstOrNull()?.let { v ->
-            val a = StyleUtil.getProperty(it, "data-svgpro-stroke-align")
+            val a = StyleUtil.getProperty(v, "data-svgpro-stroke-align")
             if (a == null) "center" else a
         } ?: "center"
     }
@@ -1566,7 +1567,7 @@ class Editor {
     /** 選択要素のぼかし半径を取得（未設定なら 0）。 */
     fun selectionEffectBlur(): Double {
         return selection.firstOrNull()?.let { v ->
-            val s = StyleUtil.getProperty(it, "data-svgpro-effect-blur")
+            val s = StyleUtil.getProperty(v, "data-svgpro-effect-blur")
             if (s == null) 0.0 else dev.svgpro.core.util.Numbers.parse(s) ?: 0.0
         } ?: 0.0
     }
@@ -1592,7 +1593,7 @@ class Editor {
     /** 選択要素のドロップシャドウ設定を取得（未設定なら null）。 */
     fun selectionEffectDropShadow(): Triple<Double, Double, Double>? {
         return selection.firstOrNull()?.let { v ->
-            val s = StyleUtil.getProperty(it, "data-svgpro-effect-dropshadow") ?: return null
+            val s = StyleUtil.getProperty(v, "data-svgpro-effect-dropshadow") ?: return null
             val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
             if (parts.size < 3) null else Triple(parts[0], parts[1], parts[2])
         }
@@ -1618,7 +1619,7 @@ class Editor {
     /** 選択要素の光彩設定を取得（未設定なら null）。 */
     fun selectionEffectGlow(): Pair<Double, Int>? {
         return selection.firstOrNull()?.let { v ->
-            val s = StyleUtil.getProperty(it, "data-svgpro-effect-glow") ?: return null
+            val s = StyleUtil.getProperty(v, "data-svgpro-effect-glow") ?: return null
             val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
             if (parts.size < 2) null else {
                 val radius = dev.svgpro.core.util.Numbers.parse(parts[0]) ?: 0.0
@@ -1647,7 +1648,7 @@ class Editor {
     /** 選択要素の色調行列文字列を取得（未設定なら null）。 */
     fun selectionEffectColorMatrix(): String? {
         return selection.firstOrNull()?.let { v ->
-            StyleUtil.getProperty(it, "data-svgpro-effect-colormatrix")
+            StyleUtil.getProperty(v, "data-svgpro-effect-colormatrix")
         }
     }
 
@@ -2568,30 +2569,30 @@ class Editor {
         val steps = cs.changes.mapIndexed { i, c ->
             when (c) {
                 is dev.svgpro.core.edit.AttrChange -> {
-                    mapOf(
+                    mapOf<String, Any>(
                         "type" to "attr",
                         "index" to i,
-                        "label" to c.label ?: "",
-                        "key" to c.key,
-                        "oldV" to c.oldV,
-                        "newV" to c.newV,
+                        "label" to (c.label ?: ""),
+                        "key" to (c.key as Any),
+                        "oldV" to (c.oldV as Any),
+                        "newV" to (c.newV as Any),
                     )
                 }
                 is dev.svgpro.core.edit.Detach -> {
-                    mapOf(
+                    mapOf<String, Any>(
                         "type" to "detach",
                         "index" to i,
-                        "label" to c.label ?: "",
+                        "label" to (c.label ?: ""),
                     )
                 }
                 is dev.svgpro.core.edit.Attach -> {
-                    mapOf(
+                    mapOf<String, Any>(
                         "type" to "attach",
                         "index" to i,
-                        "label" to c.label ?: "",
+                        "label" to (c.label ?: ""),
                     )
                 }
-                else -> mapOf("type" to "other", "index" to i, "label" to c.label ?: "")
+                else -> mapOf<String, Any>("type" to "other", "index" to i, "label" to (c.label ?: ""))
             }
         }
         currentMacroSteps.add(MacroStep(label, dev.svgpro.core.util.Json.stringify(steps)))
@@ -2718,11 +2719,11 @@ class Editor {
         val firstSel = selection.firstOrNull()
         brushPresets.add(BrushPreset(
             name,
-            editor.curStrokeWidth,
+            curStrokeWidth,
             firstSel?.let { StyleUtil.getProperty(it, "stroke-linecap") } ?: "butt",
             firstSel?.let { StyleUtil.getProperty(it, "stroke-linejoin") } ?: "miter",
             firstSel?.let { dashArrayOf(it) } ?: null,
-            (editor.curStroke as? dev.svgpro.core.model.Paint.Solid)?.argb ?: 0xFF000000.toInt(),
+            (curStroke as? dev.svgpro.core.model.Paint.Solid)?.argb ?: 0xFF000000.toInt(),
         ))
         saveBrushPresets()
         notifyChanged()
@@ -2732,9 +2733,9 @@ class Editor {
     fun applyBrushPreset(index: Int) {
         if (index !in brushPresets.indices) return
         val p = brushPresets[index]
-        editor.curStrokeWidth = p.strokeWidth
-        editor.curStroke = dev.svgpro.core.model.Paint.Solid(p.strokeColor)
-        editor.onChanged()
+        curStrokeWidth = p.strokeWidth
+        curStroke = dev.svgpro.core.model.Paint.Solid(p.strokeColor)
+        onChanged()
         // 適用はプロパティパネル側で個別に反映（キャップ/ジョイン/ダッシュ/色）
     }
 

@@ -808,7 +808,7 @@ private fun TextAttrEditors(editor: Editor, el: Element) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+fun SectionTitle(text: String) {
     Column(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth(),

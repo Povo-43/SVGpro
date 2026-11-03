@@ -185,8 +185,8 @@ class EditorViewModel : ViewModel() {
         paint.textSize = fontSize
         paint.typeface = typeface
         val path = android.graphics.Path()
-        val ok: Boolean = paint.getTextPath(ch.toString(), 0, 1, 0f, 0f, path)
-        return if (ok) path else null
+        paint.getTextPath(ch.toString(), 0, 1, 0f, 0f, path)
+        return path
     }
 
     private fun resolveTypefaceByFamily(family: String): Typeface {

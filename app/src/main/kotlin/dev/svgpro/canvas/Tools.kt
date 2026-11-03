@@ -43,6 +43,9 @@ class ToolController(val editor: Editor) {
     private var dragSession: Editor.DragSession? = null
     /** 投げ縄選択中のポイント列（画面座標＝user座標） */
     private var lassoPoints = ArrayList<Vec>()
+
+    /** 投げ縄パスを返す（CanvasView から呼ばれる）。 */
+    fun lassoPath(): List<Vec> = lassoPoints
     private var preTransforms: List<Pair<dev.svgpro.core.svg.Element, String?>>? = null
     private var scaleAnchor = Vec.ZERO
     private var scaleStart = Vec.ZERO
@@ -154,6 +157,9 @@ class ToolController(val editor: Editor) {
             }
             ToolType.GRADIENT -> {
                 onGradientDown(user, screen)
+            }
+            else -> {
+                // ARC, SECTOR, SPIRAL など未対応ツールは何もしない
             }
         }
         editor.notifyChanged()

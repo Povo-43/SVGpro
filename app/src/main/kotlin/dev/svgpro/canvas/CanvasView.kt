@@ -389,7 +389,7 @@ class CanvasView @JvmOverloads constructor(
                 if (!cancelled && !longPressCancelled) {
                     val elapsed = System.currentTimeMillis() - longPressStartTime
                     if (elapsed >= LONG_PRESS_TIMEOUT) {
-                        onLongPress?.invoke(longPressStartScreen.x, longPressStartScreen.y)
+                        onLongPress?.invoke(longPressStartScreen.x.toFloat(), longPressStartScreen.y.toFloat())
                         longPressCancelled = true // 二重発火防止
                     }
                 }
@@ -819,10 +819,10 @@ class CanvasView @JvmOverloads constructor(
         val pts = tools.lassoPath()
         if (pts.size < 2) return
         val path = Path()
-        val first = editor.userToScreen(pts[0])
+        val first = editor.userToScreen(pts[0]) ?: return
         path.moveTo(first.x.toFloat(), first.y.toFloat())
         for (i in 1 until pts.size) {
-            val p = editor.userToScreen(pts[i])
+            val p = editor.userToScreen(pts[i]) ?: continue
             path.lineTo(p.x.toFloat(), p.y.toFloat())
         }
         canvas.drawPath(path, marqueePaint)

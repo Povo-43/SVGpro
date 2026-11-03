@@ -146,12 +146,22 @@ class SvgRenderer {
         if (dropShadow != null || glow != null) {
             val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.FILL
-                antiAlias = true
             }
-            val (shadowColor, shadowBlur, shadowDx, shadowDy) = if (dropShadow != null) {
-                dropShadow!!.let { (it.d, it.c, it.a, it.b) }
+            val shadowColor: Int
+            val shadowBlur: Double
+            val shadowDx: Double
+            val shadowDy: Double
+            if (dropShadow != null) {
+                shadowColor = dropShadow.d
+                shadowBlur = dropShadow.c
+                shadowDx = dropShadow.a
+                shadowDy = dropShadow.b
             } else {
-                glow!!.let { (it.second, it.first, 0.0, 0.0) }
+                val g = glow!!
+                shadowColor = g.second
+                shadowBlur = g.first
+                shadowDx = 0.0
+                shadowDy = 0.0
             }
             shadowPaint.color = shadowColor
             if (shadowBlur > 0.0) {
@@ -482,7 +492,7 @@ class SvgRenderer {
         }
         // テキスト装飾（下線・取り消し線）
         val decoration = StyleUtil.getProperty(el, "text-decoration")
-        if (decoration.isNotEmpty()) {
+        if (decoration != null && decoration.isNotEmpty()) {
             val textWidth = textPaint.measureText(content)
             val lineX = when (anchor) {
                 "middle" -> x - textWidth / 2
@@ -490,10 +500,10 @@ class SvgRenderer {
                 else -> x
             }
             val lineRight = lineX + textWidth
-            val decoList = decoration.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            var decoList = decoration.split(Regex("\\s+")).filter { it.isNotEmpty() }
             val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = textPaint.color
-                strokeWidth = (fontSize * 0.1).coerceAtLeast(1f)
+                setColor(textPaint.color)
+                strokeWidth = (fontSize * 0.1).toFloat().coerceAtLeast(1f)
                 style = Paint.Style.STROKE
             }
             if ("underline" in decoList) {
