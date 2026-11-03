@@ -111,6 +111,7 @@ fun ColorPickerDialog(
         val c = android.graphics.Color.HSVToColor(floatArrayOf(hue, satVal.x.coerceIn(0f, 1f), satVal.y.coerceIn(0f, 1f)))
         color = ((alpha * 255).toInt() shl 24) or (c and 0x00FFFFFF)
         hex = dev.svgpro.core.model.Color.toHex(color)
+        syncCmyk(color)
     }
 
     AlertDialog(
@@ -214,12 +215,72 @@ fun ColorPickerDialog(
                                 android.graphics.Color.RGBToHSV((r * 255).toInt(), (g * 255).toInt(), (b * 255).toInt(), out)
                                 hue = out[0]
                                 satVal = Offset(out[1], out[2])
+                                syncCmyk(c)
                             }
                         },
                         modifier = Modifier.width(130.dp),
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
                     )
+                }
+                // CMYK入力
+                var cmykC by remember { mutableStateOf("0") }
+                var cmykM by remember { mutableStateOf("0") }
+                var cmykY by remember { mutableStateOf("0") }
+                var cmykK by remember { mutableStateOf("0") }
+                LaunchedEffect(color) {
+                    val cmyk = rgbToCmyk(color)
+                    cmykC = dev.svgpro.core.util.Numbers.format(cmyk.first * 100)
+                    cmykM = dev.svgpro.core.util.Numbers.format(cmyk.second * 100)
+                    cmykY = dev.svgpro.core.util.Numbers.format(cmyk.third * 100)
+                    cmykK = dev.svgpro.core.util.Numbers.format(cmyk.fourth * 100)
+                }
+                fun syncCmyk(argb: Int) {
+                    val cmyk = rgbToCmyk(argb)
+                    cmykC = dev.svgpro.core.util.Numbers.format(cmyk.first * 100)
+                    cmykM = dev.svgpro.core.util.Numbers.format(cmyk.second * 100)
+                    cmykY = dev.svgpro.core.util.Numbers.format(cmyk.third * 100)
+                    cmykK = dev.svgpro.core.util.Numbers.format(cmyk.fourth * 100)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("CMYK", style = MaterialTheme.typography.labelMedium)
+                    listOf(
+                        "C" to cmykC,
+                        "M" to cmykM,
+                        "Y" to cmykY,
+                        "K" to cmykK,
+                    ).forEachIndexed { index, (label, value) ->
+                        OutlinedTextField(
+                            value = value,
+                            onValueChange = { v ->
+                                when (index) {
+                                    0 -> cmykC = v
+                                    1 -> cmykM = v
+                                    2 -> cmykY = v
+                                    3 -> cmykK = v
+                                }
+                                val c = dev.svgpro.core.util.Numbers.parse(cmykC) ?: 0.0
+                                val m = dev.svgpro.core.util.Numbers.parse(cmykM) ?: 0.0
+                                val y = dev.svgpro.core.util.Numbers.parse(cmykY) ?: 0.0
+                                val k = dev.svgpro.core.util.Numbers.parse(cmykK) ?: 0.0
+                                val newColor = cmykToRgb(c / 100.0, m / 100.0, y / 100.0, k / 100.0)
+                                color = newColor
+                                hex = dev.svgpro.core.model.Color.toHex(newColor)
+                                val r = (newColor shr 16 and 0xFF) / 255f
+                                val g = (newColor shr 8 and 0xFF) / 255f
+                                val b = (newColor and 0xFF) / 255f
+                                val out = FloatArray(3)
+                                android.graphics.Color.RGBToHSV((r * 255).toInt(), (g * 255).toInt(), (b * 255).toInt(), out)
+                                hue = out[0]
+                                satVal = Offset(out[1], out[2])
+                            },
+                            modifier = Modifier.width(40.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(label, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text("%", style = MaterialTheme.typography.bodySmall)
                 }
                 // スウォッチ
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1013,3 +1074,29 @@ fun ContextMenu(
         }
     }
 }
+
+/** RGB(ARGB) → CMYK（各値 0.0〜1.0）。 */
+private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
+    val r = ((argb shr 16) and 0xFF) / 255.0
+    val g = ((argb shr 8) and 0xFF) / 255.0
+    val b = (argb and 0xFF) / 255.0
+    val c = 1.0 - r
+    val m = 1.0 - g
+    val y = 1.0 - b
+    val k = kotlin.math.minOf(c, m, y)
+    val cc = if (k == 1.0) 0.0 else (c - k) / (1.0 - k)
+    val mm = if (k == 1.0) 0.0 else (m - k) / (1.0 - k)
+    val yy = if (k == 1.0) 0.0 else (y - k) / (1.0 - k)
+    return Triple4(cc, mm, yy, k)
+}
+
+/** CMYK（各値 0.0〜1.0） → ARGB。 */
+private fun cmykToRgb(c: Double, m: Double, y: Double, k: Double): Int {
+    val rr = (255.0 * (1.0 - c) * (1.0 - k)).coerceIn(0.0, 255.0).toInt()
+    val gg = (255.0 * (1.0 - m) * (1.0 - k)).coerceIn(0.0, 255.0).toInt()
+    val bb = (255.0 * (1.0 - y) * (1.0 - k)).coerceIn(0.0, 255.0).toInt()
+    return 0xFF shl 24 or (rr shl 16) or (gg shl 8) or bb
+}
+
+/** CMYK用4倍体（Javaレコード相当）。 */
+private class Triple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
