@@ -69,6 +69,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showTransform by remember { mutableStateOf(false) }
     var showSvgSource by remember { mutableStateOf(false) }
     var showSvgOptimize by remember { mutableStateOf(false) }
+    var showShortcuts by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -193,6 +194,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
+                onShortcuts = { showShortcuts = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -350,6 +352,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             SvgOptimizeDialog(editor = editor, onDismiss = { showSvgOptimize = false })
         }
 
+        if (showShortcuts) {
+            ShortcutsDialog(onDismiss = { showShortcuts = false })
+        }
+
         if (showRestoreConfirm) {
             AlertDialog(
                 onDismissRequest = { showRestoreConfirm = false },
@@ -455,6 +461,7 @@ private fun TopBar(
     onSvgSource: () -> Unit,
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
+    onShortcuts: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -549,6 +556,11 @@ private fun TopBar(
                         text = { Text("画像をインポート…") },
                         leadingIcon = { Icon(AppIcons.ImageImport, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onImageImport() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ショートカット一覧") },
+                        leadingIcon = { Icon(AppIcons.Shortcuts, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onShortcuts() },
                     )
                 }
             }

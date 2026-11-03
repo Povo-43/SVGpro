@@ -798,3 +798,51 @@ fun SvgOptimizeDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
 }
+
+/** キーボードショートカット一覧ダイアログ。 */
+@Composable
+fun ShortcutsDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("キーボードショートカット") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().widthIn(min = 340.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                shortcutSection("ファイル", listOf(
+                    "Ctrl+S" to "保存",
+                    "Ctrl+Z" to "元に戻す",
+                    "Ctrl+Shift+Z / Ctrl+Y" to "やり直す",
+                    "Delete" to "削除",
+                    "Ctrl+D" to "複製",
+                ))
+                shortcutSection("選択・グループ", listOf(
+                    "Ctrl+A" to "全選択",
+                    "Ctrl+G / Ctrl+Shift+G" to "グループ化 / グループ解除",
+                    "Ctrl+J" to "変形の繰り返し",
+                    "矢印キー" to "ナッジ（Shiftで10倍）",
+                    "Ctrl+R" to "ルーラー表示",
+                ))
+                shortcutSection("ツール切替", listOf(
+                    "V / A / P / N" to "選択 / アンカー / ペン / フリーハンド",
+                    "R / O / L / T" to "長方形 / 楕円 / 直線 / テキスト",
+                    "I / H / G" to "スポイト / 手のひら / グラデーション",
+                ))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
+
+@Composable
+private fun shortcutSection(title: String, items: List<Pair<String, String>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        items.forEach { (key, desc) ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(key, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(130.dp))
+                Text(desc, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+}
