@@ -26,6 +26,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlin.math.roundToInt
+import androidx.compose.foundation.border
 import dev.svgpro.EditorViewModel
 import dev.svgpro.MainActivity
 import dev.svgpro.canvas.CanvasView
@@ -37,6 +39,7 @@ import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.model.TextAttr
 import dev.svgpro.core.svg.TokenSource
 import dev.svgpro.editor.Editor
+import dev.svgpro.editor.invertSelection
 import dev.svgpro.editor.renderToBitmap
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.ToolType
@@ -164,10 +167,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     }
 
     val swatchSaveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) saveSwatches(uri)
+        if (uri != null) saveSwatches(editor, uri)
     }
     val swatchLoadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) loadSwatches(uri)
+        if (uri != null) loadSwatches(editor, uri)
     }
 
     val onSaveSwatches = { swatchSaveLauncher.launch("swatches.json") }
@@ -231,6 +234,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
+                onFontImport = { fontImportLauncher.launch(arrayOf("application/x-font-ttf", "application/x-font-otf", "font/ttf", "font/otf", "*/*")) },
                 onShortcuts = { showShortcuts = true },
                 onCommandPalette = { showCommandPalette = true },
                 onShortcutCustomize = { showShortcutCustomize = true },
@@ -301,6 +305,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                         refresh = refresh,
                         panel = showPanel,
                         onClose = { showPanel = null },
+                        onSaveSwatches = onSaveSwatches,
+                        onLoadSwatches = onLoadSwatches,
+                        customFontFamilies = vm.loadedFontFamilies,
+                        onShowFontManager = { showFontManager = true },
                     )
                 }
             }
@@ -318,6 +326,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     panel = showPanel,
                     onClose = { showPanel = null },
                     maxHeight = sheetMaxH,
+                    onSaveSwatches = onSaveSwatches,
+                    onLoadSwatches = onLoadSwatches,
+                    customFontFamilies = vm.loadedFontFamilies,
+                    onShowFontManager = { showFontManager = true },
                 )
             }
 
@@ -432,6 +444,21 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             BrushPresetDialog(editor = editor, onDismiss = { showBrushPreset = false })
         }
 
+        if (showFontManager) {
+            FontManagerDialog(
+                vm = vm,
+                onDismiss = { showFontManager = false },
+                onFontSelected = { family ->
+                    selectedFontFamily = family
+                    showFontManager = false
+                },
+            )
+        }
+
+        if (showFontToPath) {
+            FontToPathDialog(editor = editor, onDismiss = { showFontToPath = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -442,7 +469,18 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         }
 
         if (showCommandPalette) {
-            CommandPalette(editor = editor, onDismiss = { showCommandPalette = false })
+            CommandPalette(
+                editor = editor,
+                onDismiss = { showCommandPalette = false },
+                onSave = { doSave() },
+                onSaveAs = { createLauncher.launch(editor.documentName) },
+                onTransform = { showTransform = true },
+                onReplaceColor = { showReplaceColor = true },
+                onSvgSource = { showSvgSource = true },
+                onSvgOptimize = { showSvgOptimize = true },
+                onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
+                onExportPng = { pngLauncher.launch("export.png") },
+            )
         }
 
         if (showRestoreConfirm) {
@@ -576,6 +614,7 @@ private fun TopBar(
     onSvgSource: () -> Unit,
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
+    onFontImport: () -> Unit,
     onShortcuts: () -> Unit,
     onCommandPalette: () -> Unit,
     onShortcutCustomize: () -> Unit,
@@ -683,6 +722,11 @@ private fun TopBar(
                         text = { Text("画像をインポート…") },
                         leadingIcon = { Icon(AppIcons.ImageImport, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onImageImport() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("フォントをインポート…") },
+                        leadingIcon = { Icon(AppIcons.Font, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onFontImport() },
                     )
                     DropdownMenuItem(
                         text = { Text("ショートカット一覧") },
@@ -1035,7 +1079,7 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spaceBetween,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text("Undo 履歴", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             Text("可 Undo=${stack.canUndo} Redo=${stack.canRedo}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1047,7 +1091,7 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
                 val targetSize = stack.undoHistory.size - i // 新しい順に並べた位置から逆算
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spaceBetween,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
                         cs.label ?: "操作",
@@ -1066,7 +1110,7 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
         Spacer(Modifier.height(8.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spaceBetween,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text("Redo 履歴", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
             Text("件数=${stack.redoHistory.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1077,7 +1121,7 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
             stack.redoHistory.forEachIndexed { i, cs ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spaceBetween,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
                         cs.label ?: "操作",
@@ -1113,7 +1157,7 @@ private fun NavigatorPanel(editor: Editor, refresh: Int) {
     val panelH = 100.0
 
     // ビューポートをパネル座標に変換（viewBox 基準）
-    val scale = kotlin.math.minOf(panelW / vb.width.coerceAtLeast(1.0), panelH / vb.height.coerceAtLeast(1.0))
+    val scale = Math.min(panelW / vb.width.coerceAtLeast(1.0), panelH / vb.height.coerceAtLeast(1.0))
     val viewLeft = (vm.e - vb.minX) * scale
     val viewTop = (vm.f - vb.minY) * scale
     val viewRight = (vm.e + viewportW / zoom - vb.minX) * scale
@@ -1124,7 +1168,7 @@ private fun NavigatorPanel(editor: Editor, refresh: Int) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("ナビゲーター", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-        Text("${dev.svgpro.core.util.Numbers.format((zoom * 100).toInt())}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("${dev.svgpro.core.util.Numbers.format(zoom * 100.0)}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         // ドキュメント境界＋ビューポートを描画
         Box(
@@ -1140,13 +1184,11 @@ private fun NavigatorPanel(editor: Editor, refresh: Int) {
             // ビューポート矩形（青い枠）
             Box(
                 Modifier
-                    .width((viewRight - viewLeft).coerceAtLeast(4).dp)
-                    .height((viewBottom - viewTop).coerceAtLeast(4).dp)
+                    .width(((viewRight - viewLeft).coerceAtLeast(4.0)).toFloat().dp)
+                    .height(((viewBottom - viewTop).coerceAtLeast(4.0)).toFloat().dp)
                     .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                    .offset {
-                        IntOffset(viewLeft.roundToInt(), viewTop.roundToInt())
-                    },
+                    .offset(x = viewLeft.roundToInt().dp, y = viewTop.roundToInt().dp)
             ) {}
         }
     }
@@ -1159,6 +1201,10 @@ private fun SidePanel(
     refresh: Int,
     panel: String?,
     onClose: () -> Unit,
+    onSaveSwatches: () -> Unit,
+    onLoadSwatches: () -> Unit,
+    customFontFamilies: List<String>,
+    onShowFontManager: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1185,7 +1231,14 @@ private fun SidePanel(
                     "layers" -> LayersPanel(editor, refresh)
                     "history" -> HistoryPanel(editor, refresh)
                     "navigator" -> NavigatorPanel(editor, refresh)
-                    else -> PropertiesPanel(editor, refresh, onSaveSwatches, onLoadSwatches)
+                    else -> PropertiesPanel(
+                        editor,
+                        refresh,
+                        onSaveSwatches,
+                        onLoadSwatches,
+                        customFontFamilies = customFontFamilies,
+                        onShowFontManager = onShowFontManager,
+                    )
                 }
             }
         }
@@ -1200,6 +1253,10 @@ private fun SheetPanel(
     panel: String?,
     onClose: () -> Unit,
     maxHeight: androidx.compose.ui.unit.Dp,
+    onSaveSwatches: () -> Unit,
+    onLoadSwatches: () -> Unit,
+    customFontFamilies: List<String>,
+    onShowFontManager: () -> Unit,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1238,7 +1295,14 @@ private fun SheetPanel(
                     "layers" -> LayersPanel(editor, refresh)
                     "history" -> HistoryPanel(editor, refresh)
                     "navigator" -> NavigatorPanel(editor, refresh)
-                    else -> PropertiesPanel(editor, refresh, onSaveSwatches, onLoadSwatches)
+                    else -> PropertiesPanel(
+                        editor,
+                        refresh,
+                        onSaveSwatches,
+                        onLoadSwatches,
+                        customFontFamilies = customFontFamilies,
+                        onShowFontManager = onShowFontManager,
+                    )
                 }
             }
         }
@@ -1490,9 +1554,30 @@ fun importImage(vm: EditorViewModel, uri: android.net.Uri) {
 
 /** 検索可能なコマンドパレット（カテゴリ18）。 */
 @Composable
-private fun CommandPalette(editor: Editor, onDismiss: () -> Unit) {
+private fun CommandPalette(
+    editor: Editor,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onSaveAs: () -> Unit,
+    onTransform: () -> Unit,
+    onReplaceColor: () -> Unit,
+    onSvgSource: () -> Unit,
+    onSvgOptimize: () -> Unit,
+    onImageImport: () -> Unit,
+    onExportPng: () -> Unit,
+) {
     var query by remember { mutableStateOf("") }
-    val all = commandList(editor)
+    val all = commandList(
+        editor,
+        onSave = onSave,
+        onSaveAs = onSaveAs,
+        onTransform = onTransform,
+        onReplaceColor = onReplaceColor,
+        onSvgSource = onSvgSource,
+        onSvgOptimize = onSvgOptimize,
+        onImageImport = onImageImport,
+        onExportPng = onExportPng,
+    )
     val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1512,15 +1597,15 @@ private fun CommandPalette(editor: Editor, onDismiss: () -> Unit) {
                 if (filtered.isEmpty()) {
                     Text("一致するコマンドはありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(filtered) { (label, shortcut, action) ->
+                    Column(modifier = Modifier.weight(1f)) {
+                        filtered.forEach { (label, shortcut, action) ->
                             Row(
                                 Modifier
                                     .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                                     .clickable { action(); onDismiss() },
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spaceBetween,
-                                padding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Column {
                                     Text(label, style = MaterialTheme.typography.bodyMedium)
@@ -1535,17 +1620,28 @@ private fun CommandPalette(editor: Editor, onDismiss: () -> Unit) {
                 }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+        confirmButton = { TextButton(onClick = { onDismiss() }) { Text("閉じる") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
 }
 
 /** コマンドパレット用のコマンド一覧（ラベル, ショートカット, アクション）。 */
-private fun commandList(editor: Editor): List<Triple<String, String, () -> Unit>> {
+private fun commandList(
+    editor: Editor,
+    onSave: () -> Unit,
+    onSaveAs: () -> Unit,
+    onTransform: () -> Unit,
+    onReplaceColor: () -> Unit,
+    onSvgSource: () -> Unit,
+    onSvgOptimize: () -> Unit,
+    onImageImport: () -> Unit,
+    onExportPng: () -> Unit,
+): List<Triple<String, String, () -> Unit>> {
     return listOf(
         Triple("元に戻す", "Ctrl+Z") { if (editor.undoStack.canUndo) editor.undo() },
         Triple("やり直す", "Ctrl+Shift+Z / Ctrl+Y") { if (editor.undoStack.canRedo) editor.redo() },
-        Triple("保存", "Ctrl+S") { doSave() },
-        Triple("別名で保存…", "") { createLauncher.launch(editor.documentName) },
+        Triple("保存", "Ctrl+S") { onSave() },
+        Triple("別名で保存…", "") { onSaveAs() },
         Triple("コピー", "Ctrl+C") { editor.copySelection() },
         Triple("カット", "Ctrl+X") { editor.cutSelection() },
         Triple("ペースト", "Ctrl+V") { editor.pasteFromClipboard(inPlace = false) },
@@ -1560,15 +1656,15 @@ private fun commandList(editor: Editor): List<Triple<String, String, () -> Unit>
         Triple("選択反転", "") { editor.invertSelection() },
         Triple("グループ化", "Ctrl+G") { editor.groupSelection() },
         Triple("グループ解除", "Ctrl+Shift+G") { editor.ungroupSelection() },
-        Triple("数値変形…", "") { showTransform = true },
-        Triple("色の一括置換…", "") { showReplaceColor = true },
+        Triple("数値変形…", "") { onTransform() },
+        Triple("色の一括置換…", "") { onReplaceColor() },
         Triple("ルーラー表示", "Ctrl+R") { editor.showRulers = !editor.showRulers; editor.onChanged() },
         Triple("グリッド表示", "") { editor.showGrid = !editor.showGrid; editor.onChanged() },
         Triple("グリッドスナップ", "") { editor.snapToGrid = !editor.snapToGrid; editor.onChanged() },
-        Triple("SVGソースコード編集…", "") { showSvgSource = true },
-        Triple("SVG最適化・検証…", "") { showSvgOptimize = true },
-        Triple("画像をインポート…", "") { imageImportLauncher.launch(arrayOf("image/*")) },
-        Triple("PNG書き出し…", "") { pngLauncher.launch("export.png") },
+        Triple("SVGソースコード編集…", "") { onSvgSource() },
+        Triple("SVG最適化・検証…", "") { onSvgOptimize() },
+        Triple("画像をインポート…", "") { onImageImport() },
+        Triple("PNG書き出し…", "") { onExportPng() },
     )
 }
 
@@ -1576,7 +1672,7 @@ private fun commandList(editor: Editor): List<Triple<String, String, () -> Unit>
 fun saveSwatches(editor: Editor, uri: android.net.Uri) {
     try {
         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
-        val json = "[" + editor.colorSwatches.joinToString(",") { it.toString() } + "]"
+        val json = "[" + editor.colorSwatches.joinToString(",") { v: Int -> v.toString() } + "]"
         resolver.openOutputStream(uri, "wt")?.use { out ->
             out.write(json.toByteArray(Charsets.UTF_8))
         }

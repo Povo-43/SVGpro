@@ -272,6 +272,17 @@ object AppIcons {
             fill = SolidColor(Color(0xFFE8E8E8)),
         )
     }.build()
+    val Font: ImageVector = icon(
+        "Font",
+        "M19,21H5V3H19V21Z M11,19H7V15H11V19Z M11,13H7V9H11V13Z M16,9V13H14V9H16Z M16,19H14V15H16V19Z",
+        stroke = 1.6f,
+    )
+    val Path: ImageVector = icon(
+        "Path",
+        "M3,3 L21,3 L21,21 L3,21 Z M7,7 L17,7 L17,17 L7,17 Z M12,7 L12,17 M7,12 L17,12",
+        stroke = 1.4f,
+    )
+
     val Xor: ImageVector = ImageVector.Builder(
         name = "Xor",
         defaultWidth = 24.dp, defaultHeight = 24.dp,

@@ -25,8 +25,7 @@ import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.svg.Element
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.applyTransform
-import dev.svgpro.editor.fontToPathSelection
-import dev.svgpro.editor.textToPathUsingFont
+
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.setHandleNumeric
 import dev.svgpro.editor.replaceColorEverywhere
@@ -1036,7 +1035,7 @@ fun ContextMenu(
         onDismissRequest = onDismiss,
         modifier = Modifier
             .width(180.dp)
-            .offset { IntOffset(screenX.roundToInt(), screenY.roundToInt()) },
+            .offset { androidx.compose.ui.geometry.Offset(screenX.roundToInt().toFloat(), screenY.roundToInt().toFloat()) },
     ) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
@@ -1627,7 +1626,7 @@ fun FontManagerDialog(
                     )
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(vm.loadedFonts, key = { it.family }) { font ->
+                        itemsIndexed(vm.loadedFontFamilies) { _, family ->
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1649,9 +1648,9 @@ fun FontManagerDialog(
                                     )
                                 }
                                 Column {
-                                    Text(font.family, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                                    Text(family, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                                     Text(
-                                        font.filePath?.let { "ファイル: $it" } ?: "(不明)",
+                                        "読み込み済み",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1659,11 +1658,11 @@ fun FontManagerDialog(
                                 Spacer(Modifier.weight(1f))
                                 if (onFontSelected != null) {
                                     CompactButton("選択", filled = false) {
-                                        onFontSelected(font.family)
+                                        onFontSelected(family)
                                     }
                                 }
                                 CompactButton("削除", filled = false) {
-                                    vm.removeFont(font.family)
+                                    vm.removeFont(family)
                                 }
                             }
                             Divider()
@@ -1708,10 +1707,10 @@ fun FontToPathDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                editor.fontToPathSelection()
-                onDismiss()
-            }) { Text("変換") },
+            Button(
+                onClick = { run { editor.fontToPathSelection(); onDismiss() } },
+                content = { Text("変換") }
+            )
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
@@ -1725,7 +1724,7 @@ private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
     val c = 1.0 - r
     val m = 1.0 - g
     val y = 1.0 - b
-    val k = kotlin.math.minOf(c, m, y)
+    val k = Math.min(Math.min(c, m), y)
     val cc = if (k == 1.0) 0.0 else (c - k) / (1.0 - k)
     val mm = if (k == 1.0) 0.0 else (m - k) / (1.0 - k)
     val yy = if (k == 1.0) 0.0 else (y - k) / (1.0 - k)

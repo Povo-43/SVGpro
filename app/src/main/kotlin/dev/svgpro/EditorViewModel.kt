@@ -1,8 +1,9 @@
 package dev.svgpro
 
+import android.content.Context
 import android.graphics.Paint
-import android.net.Uri
 import android.graphics.Typeface
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
@@ -11,12 +12,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import dev.svgpro.core.svg.SvgLoader
 import dev.svgpro.core.geom.Bounds
+import dev.svgpro.core.model.FontFace
 import dev.svgpro.core.model.SvgDocument
 import dev.svgpro.core.path.PathData
 import dev.svgpro.core.path.Seg
 import dev.svgpro.core.svg.Element
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.TextMetrics
+import java.io.File
 
 /**
  * 編集セッションの状態保持（回転・プロセス維持でドキュメントを失わない）。
@@ -98,6 +101,103 @@ class EditorViewModel : ViewModel() {
         }
     }
 
+    // ========================================================================
+    // フォントレジストリ（カスタムフォント TTF/OTF 読み込み）
+    // ========================================================================
+
+    /** 読み込み済みカスタムフォント: family名 → Typeface */
+    private val customFonts = mutableMapOf<String, Typeface>()
+
+    /** 読み込み済みフォント一覧（FontFaceメタデータ） */
+    val loadedFonts: MutableList<FontFace> = mutableListOf()
+
+    /** 読み込み済みフォントのファミリ名一覧 */
+    val loadedFontFamilies: List<String>
+        get() = loadedFonts.map { it.family }
+
+    /**
+     * TTF/OTFフォントファイルを読み込んでレジストリに登録する。
+     * @param filePath フォントファイルの絶対パス
+     * @param family フォントファミリ名（省略時はファイル名から推定）
+     * @return 登録成功ならtrue
+     */
+    fun loadFontFromFile(filePath: String, family: String? = null): Boolean {
+        val typeface = try {
+            Typeface.createFromFile(filePath)
+        } catch (e: Exception) {
+            return false
+        }
+        val fileName = File(filePath).name
+        val fam = family?.takeIf { it.isNotBlank() } ?: fileName.substringBeforeLast('.')
+        customFonts[fam] = typeface
+        loadedFonts.removeAll { it.family == fam }
+        loadedFonts.add(FontFace(family = fam, filePath = filePath))
+        return true
+    }
+
+    /** フォントをレジストリから削除 */
+    fun removeFont(family: String): Boolean {
+        val removed = customFonts.remove(family) != null
+        loadedFonts.removeAll { it.family == family }
+        return removed
+    }
+
+    /** すべてのカスタムフォントをクリア */
+    fun clearFonts() {
+        customFonts.clear()
+        loadedFonts.clear()
+    }
+
+    /**
+     * 要素のfont-familyに応じたTypefaceを解決する。
+     * カスタムフォントが登録されていればそれを優先、なければシステムフォントにフォールバック。
+     */
+    private fun resolveTypeface(el: Element): Typeface {
+        val family = dev.svgpro.core.model.StyleUtil.getProperty(el, "font-family") ?: "sans-serif"
+        val weight = dev.svgpro.core.model.StyleUtil.getProperty(el, "font-weight") ?: "normal"
+        val style = dev.svgpro.core.model.StyleUtil.getProperty(el, "font-style") ?: "normal"
+
+        // カスタムフォントがあれば優先
+        customFonts[family]?.let { base ->
+            val bold = weight == "bold" || weight.toIntOrNull() in 600..900
+            val italic = style == "italic" || style == "oblique"
+            return Typeface.create(base, (if (bold) Typeface.BOLD else 0) or (if (italic) Typeface.ITALIC else 0))
+        }
+
+        // フォールバック: システムフォント
+        val base = when {
+            family.contains("mono", true) -> Typeface.MONOSPACE
+            family.contains("serif", true) && !family.contains("sans", true) -> Typeface.SERIF
+            else -> Typeface.SANS_SERIF
+        }
+        val bold = weight == "bold" || weight.toIntOrNull() in 600..900
+        val italic = style == "italic" || style == "oblique"
+        return Typeface.create(base, (if (bold) Typeface.BOLD else 0) or (if (italic) Typeface.ITALIC else 0))
+    }
+
+    /**
+     * 指定文字をカスタムフォント対応のPathとして取得（グリフ単位のSVG化に使用）。
+     * @return 変換成功ならPath、失敗ならnull
+     */
+    fun glyphToPath(ch: Char, fontSize: Float, family: String): android.graphics.Path? {
+        val typeface = customFonts[family] ?: resolveTypefaceByFamily(family)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.textSize = fontSize
+        paint.typeface = typeface
+        val path = android.graphics.Path()
+        val ok: Boolean = paint.getTextPath(ch.toString(), 0, 1, 0f, 0f, path)
+        return if (ok) path else null
+    }
+
+    private fun resolveTypefaceByFamily(family: String): Typeface {
+        val base = when {
+            family.contains("mono", true) -> Typeface.MONOSPACE
+            family.contains("serif", true) && !family.contains("sans", true) -> Typeface.SERIF
+            else -> Typeface.SANS_SERIF
+        }
+        return Typeface.create(base, Typeface.NORMAL)
+    }
+
     private fun measureText(el: Element): Bounds? {
         val content = el.textContent()
         if (content.isEmpty()) return null
@@ -119,6 +219,7 @@ class EditorViewModel : ViewModel() {
 
     /**
      * text要素をアウトライン化（PathMeasureのサンプリングによる近似変換）。
+     * カスタムフォント対応。
      */
     private fun textToPathData(el: Element): PathData? {
         val content = el.textContent()
@@ -138,20 +239,6 @@ class EditorViewModel : ViewModel() {
             cx += paint.measureText(ch.toString()) + ls.toFloat()
         }
         return outlineToPathData(path)
-    }
-
-    private fun resolveTypeface(el: Element): Typeface {
-        val family = dev.svgpro.core.model.StyleUtil.getProperty(el, "font-family") ?: "sans-serif"
-        val weight = dev.svgpro.core.model.StyleUtil.getProperty(el, "font-weight") ?: "normal"
-        val style = dev.svgpro.core.model.StyleUtil.getProperty(el, "font-style") ?: "normal"
-        val base = when {
-            family.contains("mono", true) -> Typeface.MONOSPACE
-            family.contains("serif", true) && !family.contains("sans", true) -> Typeface.SERIF
-            else -> Typeface.SANS_SERIF
-        }
-        val bold = weight == "bold" || weight.toIntOrNull() in 600..900
-        val italic = style == "italic" || style == "oblique"
-        return Typeface.create(base, (if (bold) Typeface.BOLD else 0) or (if (italic) Typeface.ITALIC else 0))
     }
 
     /** android.Path（輪郭）→ PathData（高精度サンプリング近似） */

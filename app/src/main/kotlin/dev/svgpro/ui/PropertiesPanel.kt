@@ -75,7 +75,13 @@ fun PropertiesPanel(
     refresh: Int,
     onSaveSwatches: () -> Unit,
     onLoadSwatches: () -> Unit,
+    customFontFamilies: List<String> = emptyList(),
+    onShowFontManager: (() -> Unit)? = null,
 ) {
+    val sel = editor.selection
+    val hasSel = sel.isNotEmpty()
+    val isPath = sel.any { dev.svgpro.core.path.PathData.parse(it.attr("d")) != null || dev.svgpro.core.model.Shapes.isPrimitive(it) }
+
     var colorDialogTarget by remember { mutableStateOf<String?>(null) } // "fill" | "stroke"
     var colorSwatchTarget by remember { mutableStateOf("fill") } // "fill" | "stroke"
     var offsetDialog by remember { mutableStateOf(false) }
@@ -96,10 +102,6 @@ fun PropertiesPanel(
     var alignRelative by remember { mutableStateOf(AlignRelative.SELECTION) }
     var handleDialog by remember { mutableStateOf(false) }
     var stopColorTarget by remember { mutableStateOf<Int?>(null) }
-
-    val sel = editor.selection
-    val hasSel = sel.isNotEmpty()
-    val isPath = sel.any { dev.svgpro.core.path.PathData.parse(it.attr("d")) != null || dev.svgpro.core.model.Shapes.isPrimitive(it) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(6.dp),
@@ -143,7 +145,7 @@ fun PropertiesPanel(
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            editor.colorSwatches.forEachIndexed { i, argb ->
+            editor.colorSwatches.toList().forEachIndexed { i: Int, argb: Int ->
                 Box(
                     Modifier
                         .size(22.dp)
@@ -555,6 +557,46 @@ fun PropertiesPanel(
             SectionTitle("テキスト")
             Button(onClick = { textDialog = true }) { Text("テキストを編集…") }
             val textEl = sel.first { it.tag == "text" }
+
+            // フォントファミリ選択（システムフォント + 読み込み済みカスタムフォント）
+            val curFamily = StyleUtil.getProperty(textEl, "font-family") ?: "sans-serif"
+            var fontFamilyText by remember(curFamily) { mutableStateOf(curFamily) }
+            LaunchedEffect(curFamily) { fontFamilyText = curFamily }
+            val customFamilies: List<String> = customFontFamilies
+            val allFamilies = (listOf("sans-serif", "serif", "monospace") + customFamilies).toMutableList()
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("フォント", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                OutlinedTextField(
+                    value = fontFamilyText,
+                    onValueChange = { fontFamilyText = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(
+                    onClick = {
+                        editor.commit("font-family") { batch ->
+                            batch.touch(textEl)
+                            StyleUtil.setProperty(textEl, "font-family", fontFamilyText.takeIf { it.isNotBlank() } ?: "sans-serif")
+                        }
+                    },
+                ) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                allFamilies.forEach { family: String ->
+                    val selected = fontFamilyText == family
+                    val chipColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant
+                    AssistChip(
+                        onClick = { fontFamilyText = family },
+                        label = { Text(family, style = MaterialTheme.typography.labelSmall) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = chipColor),
+                    )
+                }
+                if (customFamilies.isNotEmpty()) {
+                    TextButton(onClick = { onShowFontManager?.invoke() }) { Text("フォント管理…", style = MaterialTheme.typography.labelSmall) }
+                }
+            }
+
             TextAttrEditors(editor, textEl)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                 listOf("none" to "なし", "underline" to "下線", "line-through" to "取り消し線").forEach { (v, label) ->
@@ -776,7 +818,6 @@ private fun SectionTitle(text: String) {
                 text,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium,
             )
             Spacer(Modifier.weight(1f))
         }
@@ -787,7 +828,7 @@ private fun SectionTitle(text: String) {
 
 /** 塗り/線のコンパクトボタン */
 @Composable
-private fun CompactButton(label: String, filled: Boolean = false, onClick: () -> Unit) {
+internal fun CompactButton(label: String, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier
             .clip(RoundedCornerShape(UiMetrics.CornerSmall))
