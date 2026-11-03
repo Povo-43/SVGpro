@@ -371,7 +371,18 @@ class SvgRenderer {
             textPaint.letterSpacing = (ls / fontSize.coerceAtLeast(1f)).toFloat()
         }
         // 複数行（tspanによる折返しは簡易対応: text全体を1行で描画）
-        canvas.drawText(content, x, y, textPaint)
+        val writingMode = StyleUtil.getProperty(el, "writing-mode") ?: el.attr("writing-mode") ?: ""
+        val isVertical = writingMode.equals("vertical-lr", true) || writingMode.equals("vertical-rl", true)
+        if (isVertical) {
+            var cy = y
+            val lineHeight = fontSize * 1.2f
+            for (ch in content) {
+                canvas.drawText(ch.toString(), x, cy, textPaint)
+                cy += lineHeight
+            }
+        } else {
+            canvas.drawText(content, x, y, textPaint)
+        }
         // テキスト装飾（下線・取り消し線）
         val decoration = StyleUtil.getProperty(el, "text-decoration")
         if (decoration.isNotEmpty()) {
