@@ -10,18 +10,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * ヒントポップアップを表示するラッパーコンポーネント。
+ * ボタン横に機能説明ポップアップを表示するラッパーコンポーネント。
  *
- * ボタンやアイコンをラップし、タップでヒントポップアップを
- * 表示/非表示に切り替える。タブレット・スマホ両方で動作する。
+ * タップでヒントの表示／非表示をトグルする。
+ * ヒントはボタンの「右側」に固定表示されるため、指で隠れて見えにくい
+ * という問題を回避する。
  *
- * - タップでヒント表示・非表示をトグル
- * - ヒントはコンポーネントの下方中央にポップアップ表示
- * - enabled=false の時はヒントも表示しない
+ * - ヒント表示中は元の onClick は発火しない（誤操作防止）
+ * - ヒント非表示時にタップすると onClick を実行
+ * - description が設定されている場合は、ラベルに加えて詳しい説明文も表示
+ * - enabled=false の時はヒントもクリックも無効化
  */
 @Composable
 fun LongPressTooltip(
-    hint: String,
+    label: String,
+    description: String? = null,
     content: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {},
@@ -34,28 +37,42 @@ fun LongPressTooltip(
             .clickable(
                 enabled = enabled,
                 onClick = {
-                    showHint = !showHint
-                    if (!showHint) onClick()
+                    if (showHint) {
+                        // ヒント表示中は閉じるだけ（アクションは実行しない）
+                        showHint = false
+                    } else {
+                        onClick()
+                    }
                 },
             ),
         contentAlignment = Alignment.Center,
     ) {
         content()
 
-        if (showHint && hint.isNotEmpty() && enabled) {
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)) {
+        if (showHint && label.isNotEmpty() && enabled) {
+            Box(Modifier.align(Alignment.CenterEnd).padding(start = 8.dp)) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     tonalElevation = 8.dp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                 ) {
-                    Text(
-                        text = hint.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                    )
+                    Column(Modifier.widthIn(max = 220.dp)) {
+                        Text(
+                            text = label.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        )
+                        description?.let { desc ->
+                            Text(
+                                text = desc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 3,
+                            )
+                        }
+                    }
                 }
             }
         }

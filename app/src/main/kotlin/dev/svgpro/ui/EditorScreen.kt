@@ -855,23 +855,26 @@ private fun TopBar(
                 }
             }
 
-            BarIconButton(AppIcons.Undo, "元に戻す", enabled = editor.undoStack.canUndo, onClick = onUndo)
-            BarIconButton(AppIcons.Redo, "やり直す", enabled = editor.undoStack.canRedo, onClick = onRedo)
+            BarIconButton(AppIcons.Undo, "元に戻す", description = "直前の操作を元に戻します（Ctrl+Z）", enabled = editor.undoStack.canUndo, onClick = onUndo)
+            BarIconButton(AppIcons.Redo, "やり直す", description = "元に戻した操作をやり直します（Ctrl+Shift+Z）", enabled = editor.undoStack.canRedo, onClick = onRedo)
             BarDivider()
             BarIconButton(
                 AppIcons.Layers, "レイヤー",
+                description = "レイヤー / オブジェクトパネルを表示",
                 active = activePanel == "layers", onClick = { onPanel("layers") },
             )
             BarIconButton(
                 AppIcons.Palette, "プロパティ",
+                description = "選択オブジェクトの塗り・線・エフェクト等を編集",
                 active = activePanel == "props", onClick = { onPanel("props") },
             )
             BarIconButton(
                 AppIcons.Edit, "履歴",
+                description = "操作履歴パネルを表示",
                 active = activePanel == "history", onClick = { onPanel("history"); onHistory() },
             )
             BarDivider()
-            BarIconButton(AppIcons.Save, "保存", onClick = onSave)
+            BarIconButton(AppIcons.Save, "保存", description = "現在のドキュメントを上書き保存します（Ctrl+S）", onClick = onSave)
         }
         // 上部バーとキャンバスの間のヘアライン
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -883,6 +886,7 @@ private fun TopBar(
 private fun BarIconButton(
     icon: ImageVector,
     desc: String,
+    description: String? = null,
     enabled: Boolean = true,
     active: Boolean = false,
     onClick: () -> Unit,
@@ -893,7 +897,8 @@ private fun BarIconButton(
         label = "barBg",
     )
     LongPressTooltip(
-        hint = desc,
+        label = desc,
+        description = description,
         content = {
             Box(
                 Modifier
@@ -976,6 +981,27 @@ private fun toolLabel(t: ToolType): String = when (t) {
     ToolType.HAND -> "手のひら"
 }
 
+private fun toolDescription(t: ToolType): String = when (t) {
+    ToolType.SELECT -> "オブジェクトを選択・移動・変形します"
+    ToolType.NODE -> "パスのアンカーノードを直接編集します"
+    ToolType.PEN -> "ベジェ曲線でパスを描画します"
+    ToolType.FREEHAND -> "マウス・指でフリーハンド描画します"
+    ToolType.RECT -> "長方形を作成します"
+    ToolType.RRECT -> "角丸長方形を作成します"
+    ToolType.ELLIPSE -> "楕円・円を作成します"
+    ToolType.LINE -> "直線を描画します"
+    ToolType.POLYLINE -> "ポリラインを描画します"
+    ToolType.POLYGON -> "多角形を作成します"
+    ToolType.STAR -> "星形を作成します"
+    ToolType.ARC -> "円弧を描画します"
+    ToolType.SECTOR -> "扇形を作成します"
+    ToolType.SPIRAL -> "螺旋を描画します"
+    ToolType.TEXT -> "テキストオブジェクトを作成します"
+    ToolType.GRADIENT -> "グラデーションツールを選択します"
+    ToolType.EYEDROPPER -> "キャンバス上の色をサンプリングします"
+    ToolType.HAND -> "キャンバスをパン（移動）します"
+}
+
 /** ツールレール（縦: レール / 横: compact用バー） */
 @Composable
 fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
@@ -996,16 +1022,16 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
                     group.forEach { (tool, icon) -> ToolButton(editor, refresh, tool, icon, onClick = { pickTool(tool) }) }
                 }
                 RailSeparator(vertical = true)
-                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid, refresh) {
+                RailToggle(AppIcons.Grid, "グリッド", description = "グリッド線の表示・非表示を切り替え", editor.showGrid, refresh) {
                     editor.showGrid = !editor.showGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid, refresh) {
+                RailToggle(AppIcons.Magnet, "グリッドスナップ", description = "オブジェクトをグリッドにスナップ", editor.snapToGrid, refresh) {
                     editor.snapToGrid = !editor.snapToGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly, refresh) {
+                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", description = "指入力を無視し、ペン（スタイラス）のみ反応", editor.penOnly, refresh) {
                     editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
-                RailToggle(AppIcons.Magnet, "距離スナップ", editor.snapToDistance, refresh) {
+                RailToggle(AppIcons.Magnet, "距離スナップ", description = "オブジェクト同士の距離にスナップ", editor.snapToDistance, refresh) {
                     editor.snapToDistance = !editor.snapToDistance; editor.onChanged()
                 }
             }
@@ -1019,22 +1045,22 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
                     group.forEach { (tool, icon) -> ToolButton(editor, refresh, tool, icon, onClick = { pickTool(tool) }) }
                 }
                 RailSeparator(vertical = false)
-                RailToggle(AppIcons.Grid, "グリッド", editor.showGrid, refresh) {
+                RailToggle(AppIcons.Grid, "グリッド", description = "グリッド線の表示・非表示を切り替え", editor.showGrid, refresh) {
                     editor.showGrid = !editor.showGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.Magnet, "グリッドスナップ", editor.snapToGrid, refresh) {
+                RailToggle(AppIcons.Magnet, "グリッドスナップ", description = "オブジェクトをグリッドにスナップ", editor.snapToGrid, refresh) {
                     editor.snapToGrid = !editor.snapToGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly, refresh) {
+                RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", description = "指入力を無視し、ペン（スタイラス）のみ反応", editor.penOnly, refresh) {
                     editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
-                RailToggle(AppIcons.Magnet, "距離スナップ", editor.snapToDistance, refresh) {
+                RailToggle(AppIcons.Magnet, "距離スナップ", description = "オブジェクト同士の距離にスナップ", editor.snapToDistance, refresh) {
                     editor.snapToDistance = !editor.snapToDistance; editor.onChanged()
                 }
-                RailToggle(AppIcons.Grid, "ピクセルグリッド", editor.showPixelGrid, refresh) {
+                RailToggle(AppIcons.Grid, "ピクセルグリッド", description = "ピクセルグリッドの表示・非表示を切り替え", editor.showPixelGrid, refresh) {
                     editor.showPixelGrid = !editor.showPixelGrid; editor.onChanged()
                 }
-                RailToggle(AppIcons.Outline, "アウトライン表示", editor.showOutlineMode, refresh) {
+                RailToggle(AppIcons.Outline, "アウトライン表示", description = "オブジェクトをアウトライン（輪郭のみ）表示", editor.showOutlineMode, refresh) {
                     editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged()
                 }
             }
@@ -1065,7 +1091,8 @@ private fun ToolButton(editor: Editor, refresh: Int, tool: ToolType, icon: Image
     )
     val label = toolLabel(tool)
     LongPressTooltip(
-        hint = label,
+        label = label,
+        description = toolDescription(tool),
         content = {
             Box(
                 Modifier
@@ -1087,7 +1114,7 @@ private fun ToolButton(editor: Editor, refresh: Int, tool: ToolType, icon: Image
 }
 
 @Composable
-private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh: Int, onToggle: () -> Unit) {
+private fun RailToggle(icon: ImageVector, desc: String, description: String? = null, active: Boolean, refresh: Int, onToggle: () -> Unit) {
     // refreshによりstrong skippingを打ち消し、activeの変化（editor側フラグ）を反映する
     val bg by animateColorAsState(
         if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.20f)
@@ -1095,7 +1122,8 @@ private fun RailToggle(icon: ImageVector, desc: String, active: Boolean, refresh
         label = "toggleBg",
     )
     LongPressTooltip(
-        hint = desc,
+        label = desc,
+        description = description,
         content = {
             Box(
                 Modifier
