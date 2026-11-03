@@ -110,27 +110,33 @@ fun PropertiesPanel(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val fill = if (hasSel) editor.selectionFill() else editor.curFill
             Swatch(fill)
-            CompactButton("なし") {
-                if (hasSel) {
-                    editor.applyFillToSelection(Paint.None)
-                } else {
-                    editor.curFill = Paint.None
-                    editor.onChanged()
+            Spacer(Modifier.width(4.dp))
+            Column {
+                CompactButton("なし") {
+                    if (hasSel) {
+                        editor.applyFillToSelection(Paint.None)
+                    } else {
+                        editor.curFill = Paint.None
+                        editor.onChanged()
+                    }
                 }
+                CompactButton("色…", filled = true) { colorDialogTarget = "fill" }
             }
-            CompactButton("色…", filled = true) { colorDialogTarget = "fill" }
-            CompactButton("線形") {
-                val id = ensureGradient(editor, radial = false)
-                if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
-            }
-            CompactButton("円形") {
-                val id = ensureGradient(editor, radial = true)
-                if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
+            Spacer(Modifier.weight(1f))
+            Column {
+                CompactButton("線形") {
+                    val id = ensureGradient(editor, radial = false)
+                    if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
+                }
+                CompactButton("円形") {
+                    val id = ensureGradient(editor, radial = true)
+                    if (hasSel) editor.applyFillToSelection(Paint.Server(id)) else { editor.curFill = Paint.Server(id); editor.onChanged() }
+                }
             }
         }
         // スウォッチ
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("スウォッチ", style = MaterialTheme.typography.labelMedium)
+            Text("スウォッチ", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(selected = colorSwatchTarget == "fill", onClick = { colorSwatchTarget = "fill" }, label = { Text("塗り", style = MaterialTheme.typography.labelSmall) })
                 FilterChip(selected = colorSwatchTarget == "stroke", onClick = { colorSwatchTarget = "stroke" }, label = { Text("線", style = MaterialTheme.typography.labelSmall) })
@@ -140,7 +146,7 @@ fun PropertiesPanel(
             editor.colorSwatches.forEachIndexed { i, argb ->
                 Box(
                     Modifier
-                        .size(20.dp)
+                        .size(22.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(androidx.compose.ui.graphics.Color(argb))
                         .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
@@ -151,8 +157,11 @@ fun PropertiesPanel(
                 val c = if (hasSel) editor.selectionFill() else editor.curFill
                 (c as? Paint.Solid)?.let { editor.addColorSwatch(it.argb) }
             }
-            CompactButton("パレット保存", filled = false) { onSaveSwatches() }
-            CompactButton("パレット読込", filled = false) { onLoadSwatches() }
+            Spacer(Modifier.weight(1f))
+            Column {
+                CompactButton("パレット保存", filled = false) { onSaveSwatches() }
+                CompactButton("パレット読込", filled = false) { onLoadSwatches() }
+            }
         }
 
         // ―――― 線 ――――
@@ -160,15 +169,20 @@ fun PropertiesPanel(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             val stroke = if (hasSel) editor.selectionStroke() else editor.curStroke
             Swatch(stroke)
-            CompactButton("なし") {
-                if (hasSel) editor.applyStrokeToSelection(Paint.None)
-                else { editor.curStroke = Paint.None; editor.onChanged() }
+            Spacer(Modifier.width(4.dp))
+            Column {
+                CompactButton("なし") {
+                    if (hasSel) editor.applyStrokeToSelection(Paint.None)
+                    else { editor.curStroke = Paint.None; editor.onChanged() }
+                }
+                CompactButton("色…", filled = true) { colorDialogTarget = "stroke" }
             }
-            CompactButton("色…", filled = true) { colorDialogTarget = "stroke" }
+            Spacer(Modifier.weight(1f))
         }
-        val strokeWidth = if (hasSel) editor.selectionStrokeWidth() else editor.curStrokeWidth
+        // 幅
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("幅", style = MaterialTheme.typography.labelMedium)
+            Text("幅", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(40.dp))
+            val strokeWidth = if (hasSel) editor.selectionStrokeWidth() else editor.curStrokeWidth
             Slider(
                 value = strokeWidth.toFloat().coerceIn(0.1f, 40f),
                 onValueChange = {
@@ -177,8 +191,9 @@ fun PropertiesPanel(
                 },
                 modifier = Modifier.weight(1f),
             )
-            Text(String.format("%.1f", strokeWidth), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(38.dp))
+            Text(String.format("%.1f", strokeWidth), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp))
         }
+        // 線端 / 線継ぎ / 線位置
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf("butt" to "バット", "round" to "ラウンド", "square" to "スクエア").forEach { (v, label) ->
                 AssistChip(onClick = { if (hasSel) editor.applyStrokeCapToSelection(v) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
@@ -187,8 +202,7 @@ fun PropertiesPanel(
             listOf("miter" to "マイター", "round" to "ラウンド", "bevel" to "ベベル").forEach { (v, label) ->
                 AssistChip(onClick = { if (hasSel) editor.applyStrokeJoinToSelection(v) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            Spacer(Modifier.width(8.dp))
             listOf("center" to "中央", "inside" to "内側", "outside" to "外側").forEach { (v, label) ->
                 val selected = hasSel && editor.selectionStrokeAlignment() == v
                 AssistChip(
@@ -202,6 +216,7 @@ fun PropertiesPanel(
                 )
             }
         }
+        // ダッシュ
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf(
                 null to "実線",
@@ -213,9 +228,9 @@ fun PropertiesPanel(
             }
         }
         // 不透明度
-        val opacity = if (hasSel) editor.selectionOpacity() else 1.0
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("不透明度", style = MaterialTheme.typography.labelMedium)
+            Text("不透明度", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+            val opacity = if (hasSel) editor.selectionOpacity() else 1.0
             Slider(
                 value = opacity.toFloat(),
                 onValueChange = {
@@ -223,7 +238,7 @@ fun PropertiesPanel(
                 },
                 modifier = Modifier.weight(1f),
             )
-            Text("${(opacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(38.dp))
+            Text("${(opacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp))
         }
 
         // ―――― エフェクト ――――
@@ -348,9 +363,9 @@ fun PropertiesPanel(
             }
         }
 
-        // ―――― 整列 ――――
+        // ―――― 整列・配置 ――――
         SectionTitle("整列・配置")
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             listOf(
                 AlignRelative.SELECTION to "選択範囲",
                 AlignRelative.CANVAS to "キャンバス",
@@ -375,17 +390,17 @@ fun PropertiesPanel(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             IconAction(AppIcons.AlignLeft, "左揃え") { alignFn("left") }
-            IconAction(AppIcons.AlignCenterH, "左右中央揃え") { alignFn("centerX") }
+            IconAction(AppIcons.AlignCenterH, "中央揃え") { alignFn("centerX") }
             IconAction(AppIcons.AlignRight, "右揃え") { alignFn("right") }
             IconAction(AppIcons.AlignTop, "上揃え") { alignFn("top") }
-            IconAction(AppIcons.AlignCenterV, "上下中央揃え") { alignFn("centerY") }
+            IconAction(AppIcons.AlignCenterV, "中央揃え") { alignFn("centerY") }
             IconAction(AppIcons.AlignBottom, "下揃え") { alignFn("bottom") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            IconAction(AppIcons.DistH, "横に等間隔") {
+            IconAction(AppIcons.DistH, "横等間隔") {
                 if (alignRelative == AlignRelative.SELECTION) editor.distributeSelection(true) else editor.distributeSelectionEx(true)
             }
-            IconAction(AppIcons.DistV, "縦に等間隔") {
+            IconAction(AppIcons.DistV, "縦等間隔") {
                 if (alignRelative == AlignRelative.SELECTION) editor.distributeSelection(false) else editor.distributeSelectionEx(false)
             }
             IconAction(AppIcons.FlipH, "左右反転") { editor.flipSelection(true) }
@@ -402,15 +417,15 @@ fun PropertiesPanel(
         if (isPath && sel.isNotEmpty()) {
             SectionTitle("パス操作")
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.UNION) }, label = { Text("合成", style = MaterialTheme.typography.labelSmall) })
-                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.DIFFERENCE) }, label = { Text("型抜き", style = MaterialTheme.typography.labelSmall) })
-                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.INTERSECTION) }, label = { Text("交差", style = MaterialTheme.typography.labelSmall) })
-                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.XOR) }, label = { Text("排他", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.UNION) }, label = { Text("和集合", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.DIFFERENCE) }, label = { Text("差集合", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.INTERSECTION) }, label = { Text("共通部分", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.booleanOp(GeometryOpKind.XOR) }, label = { Text("排他的和", style = MaterialTheme.typography.labelSmall) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                AssistChip(onClick = { offsetDialog = true }, label = { Text("オフセット…", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { offsetDialog = true }, label = { Text("オフセット", style = MaterialTheme.typography.labelSmall) })
                 AssistChip(onClick = { editor.simplifyPath(0.5) }, label = { Text("単純化", style = MaterialTheme.typography.labelSmall) })
-                AssistChip(onClick = { editor.smoothPath() }, label = { Text("滑らか", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.smoothPath() }, label = { Text("平滑化", style = MaterialTheme.typography.labelSmall) })
                 AssistChip(onClick = { editor.convertToPath(editor.selection.toList()) }, label = { Text("パスへ変換", style = MaterialTheme.typography.labelSmall) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -419,38 +434,33 @@ fun PropertiesPanel(
                 AssistChip(onClick = { editor.strokeToPathSelection() }, label = { Text("線をパス化", style = MaterialTheme.typography.labelSmall) })
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                AssistChip(onClick = { editor.compoundSelection() }, label = { Text("複合パス", style = MaterialTheme.typography.labelSmall) })
-                AssistChip(onClick = { editor.releaseCompound() }, label = { Text("複合解除", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.compoundSelection() }, label = { Text("複合パス化", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.releaseCompound() }, label = { Text("複合パス解除", style = MaterialTheme.typography.labelSmall) })
                 val rule = StyleUtil.fillRule(sel.first())
                 AssistChip(
                     onClick = { editor.setFillRuleSelection(if (rule == "evenodd") "nonzero" else "evenodd") },
-                    label = { Text("塗り規則: $rule", style = MaterialTheme.typography.labelSmall) },
+                    label = { Text("塗り規則: ${if (rule == "evenodd") "evenodd" else "nonzero"}", style = MaterialTheme.typography.labelSmall) },
                 )
             }
         }
 
         // ―――― クリッピング / マスク ――――
         if (sel.isNotEmpty()) {
-            SectionTitle("クリッピング・マスク")
+            SectionTitle("クリッピング / マスク")
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                 AssistChip(
                     onClick = { editor.createClipFromSelection() },
                     enabled = sel.size >= 2,
                     label = { Text("クリッピング作成", style = MaterialTheme.typography.labelSmall) },
                 )
-                AssistChip(onClick = { editor.releaseClipSelection() }, label = { Text("クリップ解除", style = MaterialTheme.typography.labelSmall) })
+                AssistChip(onClick = { editor.releaseClipSelection() }, label = { Text("クリッピング解除", style = MaterialTheme.typography.labelSmall) })
                 AssistChip(
                     onClick = { editor.createMaskFromSelection() },
                     enabled = sel.size >= 2,
-                    label = { Text("マスク作成", style = MaterialTheme.typography.labelSmall) },
+                    label = { Text("不透明マスク作成", style = MaterialTheme.typography.labelSmall) },
                 )
                 AssistChip(onClick = { editor.releaseMaskSelection() }, label = { Text("マスク解除", style = MaterialTheme.typography.labelSmall) })
             }
-            Text(
-                "最前面の図形で、それ以外の選択を非破壊で切り抜きます",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
 
         // ―――― シンボル ――――
@@ -471,32 +481,40 @@ fun PropertiesPanel(
             if (gm != null) {
                 SectionTitle("グラデーション")
                 Text(
-                    "ストップ ${gm.stops.size}個（canvasでハンドル編集可）",
+                    "ストップ数: ${gm.stops.size} （canvasでハンドル編集可）",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 gm.stops.forEachIndexed { i, stop ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Box(
                             Modifier
-                                .size(22.dp)
+                                .size(20.dp)
                                 .clip(CircleShape)
                                 .background(Color(stop.argb))
                                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
                                 .clickable { stopColorTarget = i },
                         )
-                        var offText by remember(stop.offset, refresh) {
-                            mutableStateOf(dev.svgpro.core.util.Numbers.format(stop.offset))
-                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text("ストップ ${i + 1}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.width(56.dp))
                         OutlinedTextField(
-                            value = offText,
-                            onValueChange = { offText = it },
-                            modifier = Modifier.width(64.dp),
+                            value = dev.svgpro.core.util.Numbers.format(stop.offset),
+                            onValueChange = { off ->
+                                dev.svgpro.core.util.Numbers.parse(off)?.let { editor.moveGradientStop(i, it) }
+                            },
+                            modifier = Modifier.width(60.dp),
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodySmall,
                         )
-                        TextButton(onClick = {
-                            dev.svgpro.core.util.Numbers.parse(offText)?.let { editor.moveGradientStop(i, it) }
-                        }) { Text("位置", style = MaterialTheme.typography.labelSmall) }
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                                .background(Color(stop.argb))
+                                .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                                .clickable { stopColorTarget = i },
+                        )
                         if (gm.stops.size > 2) {
                             TextButton(onClick = { editor.removeGradientStop(i) }) {
                                 Text("削除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
@@ -506,6 +524,7 @@ fun PropertiesPanel(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { editor.addGradientStop(0.5) }) { Text("ストップ追加", style = MaterialTheme.typography.labelSmall) }
+                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = {
                         val handles = editor.gradientHandlePoints() ?: return@TextButton
                         val model = handles.first
@@ -749,11 +768,18 @@ private fun TextAttrEditors(editor: Editor, el: Element) {
 @Composable
 private fun SectionTitle(text: String) {
     Column(Modifier.fillMaxWidth()) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+            )
+            Spacer(Modifier.weight(1f))
+        }
         Spacer(Modifier.height(2.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
     }
