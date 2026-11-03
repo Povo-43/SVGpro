@@ -10,6 +10,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
@@ -229,6 +232,9 @@ object AppIcons {
     val Edit: ImageVector = Icons.Filled.Edit
     val MenuIcon: ImageVector = Icons.Filled.Menu
     val More: ImageVector = Icons.Filled.MoreVert
+    val ContentCopy: ImageVector = Icons.Filled.ContentCopy
+    val ContentCut: ImageVector = Icons.Filled.ContentCut
+    val ContentPaste: ImageVector = Icons.Filled.ContentPaste
     val Up: ImageVector = icon("Up", "M12,5 L12,19 M6,11 L12,5 L18,11")
     val Down: ImageVector = icon("Down", "M12,19 L12,5 M6,13 L12,19 L18,13")
     val FlipH: ImageVector = icon("FlipH", "M12,3 L12,21 M7,7 L3,12 L7,17 M17,7 L21,12 L17,17")

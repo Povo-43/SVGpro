@@ -1362,6 +1362,61 @@ class Editor {
         notifySelection()
     }
 
+    // ―――― コピー・カット・ペースト ――――
+
+    /** クリップボード（ディープコピーされた要素リスト） */
+    val clipboard = mutableListOf<Element>()
+
+    /** 選択をクリップボードへコピー */
+    fun copySelection() {
+        if (selection.isEmpty()) return
+        clipboard.clear()
+        for (el in selection) clipboard.add(el.deepCopy())
+        notifyChanged()
+    }
+
+    /** 選択をクリップボードへコピーしてから削除 */
+    fun cutSelection() {
+        if (selection.isEmpty()) return
+        copySelection()
+        deleteSelection()
+    }
+
+    /**
+     * クリップボードの内容をペーストする。
+     * @param inPlace true で同位置にペースト（インプレース）。false で少しずらす。
+     * @param toFront true で親の末尾（最前面）へ、false で元の親位置の直後へ挿入。
+     */
+    fun pasteFromClipboard(inPlace: Boolean = false, toFront: Boolean = false) {
+        if (clipboard.isEmpty()) return
+        val changes = ArrayList<dev.svgpro.core.edit.Change>()
+        val newSel = ArrayList<Element>()
+        val layer = currentLayer()
+        val defaultParent = layer ?: doc.root
+        for (src in clipboard) {
+            val copy = src.deepCopy()
+            copy.setAttr("id", null)
+            val parent = if (toFront) defaultParent else findParent(src) ?: defaultParent
+            val idx = if (toFront) parent.children.size else (parent.children.indexOf(src) + 1).coerceAtLeast(0).coerceAtMost(parent.children.size)
+            if (!inPlace) {
+                // 少しずらして重ね合わせを避ける（zoomに依存しない固定オフセット）
+                val t = Shapes.localTransform(copy)
+                copy.setAttr("transform", Matrix.toSvgString(t.then(Matrix(e = 20.0 / zoom, f = 20.0 / zoom))))
+            }
+            changes.add(Attach(copy, parent, idx, doc.root, "paste"))
+            newSel.add(copy)
+        }
+        if (changes.isEmpty()) return
+        val cs = ChangeSet(changes, "paste", newSel)
+        cs.apply()
+        selection.clear()
+        selection.addAll(newSel)
+        undoStack.push(cs)
+        updateNodeSession()
+        notifyChanged()
+        notifySelection()
+    }
+
     fun currentLayer(): Element? {
         // 選択要素のルート直下の親gをレイヤーとする。無ければ null（root直下）
         if (selection.isNotEmpty()) {

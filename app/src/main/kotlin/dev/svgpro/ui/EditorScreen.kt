@@ -391,6 +391,9 @@ private fun handleKey(editor: Editor, keyCode: Int, event: KeyEvent, save: () ->
         (ctrl && keyCode == KeyEvent.KEYCODE_Z && shift) || (ctrl && keyCode == KeyEvent.KEYCODE_Y) -> { editor.redo(); true }
         ctrl && keyCode == KeyEvent.KEYCODE_S -> { save(); true }
         keyCode == KeyEvent.KEYCODE_DEL || keyCode == KeyEvent.KEYCODE_FORWARD_DEL -> { editor.deleteSelection(); true }
+        ctrl && keyCode == KeyEvent.KEYCODE_C -> { editor.copySelection(); true }
+        ctrl && keyCode == KeyEvent.KEYCODE_X -> { editor.cutSelection(); true }
+        ctrl && keyCode == KeyEvent.KEYCODE_V -> { editor.pasteFromClipboard(inPlace = false); true }
         ctrl && keyCode == KeyEvent.KEYCODE_D -> { editor.duplicateSelection(); true }
         ctrl && keyCode == KeyEvent.KEYCODE_G && !shift -> { editor.groupSelection(); true }
         ctrl && keyCode == KeyEvent.KEYCODE_G && shift -> { editor.ungroupSelection(); true }
@@ -496,6 +499,25 @@ private fun TopBar(
                         onClick = { onMenuDismiss(); onSave() },
                     )
                     DropdownMenuItem(text = { Text("別名で保存…") }, onClick = { onMenuDismiss(); onSaveAs() })
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("コピー") },
+                        leadingIcon = { Icon(AppIcons.ContentCopy, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.selection.isNotEmpty(),
+                        onClick = { onMenuDismiss(); editor.copySelection() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("カット") },
+                        leadingIcon = { Icon(AppIcons.ContentCut, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.selection.isNotEmpty(),
+                        onClick = { onMenuDismiss(); editor.cutSelection() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ペースト") },
+                        leadingIcon = { Icon(AppIcons.ContentPaste, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.clipboard.isNotEmpty(),
+                        onClick = { onMenuDismiss(); editor.pasteFromClipboard(inPlace = false) },
+                    )
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("PNG書き出し…") },
