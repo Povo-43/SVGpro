@@ -133,7 +133,7 @@ class SvgRenderer {
         val stroke = editor.inheritedPaint(el, "stroke")
         val elementOpacity = StyleUtil.opacity(el)
 
-        if (fill !is SvgPaint.None) {
+        if (fill !is SvgPaint.None && !editor.showOutlineMode) {
             configurePaint(fillPaint, fill, el, item, editor, true)
             fillPaint.alpha = (fillPaint.alpha * elementOpacity).toInt().coerceIn(0, 255)
             canvas.drawPath(path, fillPaint)

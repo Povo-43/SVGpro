@@ -739,6 +739,9 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
                 RailToggle(AppIcons.Grid, "ピクセルグリッド", editor.showPixelGrid, refresh) {
                     editor.showPixelGrid = !editor.showPixelGrid; editor.onChanged()
                 }
+                RailToggle(AppIcons.Outline, "アウトライン表示", editor.showOutlineMode, refresh) {
+                    editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged()
+                }
             }
         }
     }
