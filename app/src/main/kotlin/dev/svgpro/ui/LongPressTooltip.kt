@@ -29,7 +29,7 @@ fun LongPressTooltip(
 ) {
     var showHint by remember { mutableStateOf(false) }
 
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .clickable(
                 enabled = enabled,
@@ -43,7 +43,7 @@ fun LongPressTooltip(
         content()
 
         if (showHint && hint.isNotEmpty() && enabled) {
-            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp)) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)) {
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHighest,
