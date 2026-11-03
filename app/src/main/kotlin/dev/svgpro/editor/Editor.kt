@@ -2206,6 +2206,69 @@ class Editor {
 
     private fun textToPathData(el: Element): PathData? = textToPathProvider?.invoke(el)
 
+    // ========================================================================
+    // フォント → パス変換（テキストのアウトライン化）
+    // ========================================================================
+
+    /**
+     * 選択中の text 要素を、現在のフォント設定に基づいて path 要素へ変換する。
+     * カスタムフォント（loadFontFromFile で登録済み）にも対応。
+     * 変換後は元の text 要素は削除され、path が選択される。
+     */
+    fun fontToPathSelection(): Boolean {
+        val targets = selection.filter { it.tag == "text" }
+        if (targets.isEmpty()) return false
+        val changes = ArrayList<dev.svgpro.core.edit.Change>()
+        val newSel = ArrayList<Element>()
+        for (el in targets) {
+            val pd = textToPathData(el) ?: continue
+            val abs = trace.absOf(el)
+            pd.transform(abs)
+            val parent = findParent(el) ?: continue
+            val idx = parent.children.indexOf(el).coerceAtLeast(0)
+            val p = Element("path")
+            // フォント関連属性以外をコピー
+            for ((k, v) in el.attrs) {
+                if (k in setOf("x", "y", "dx", "dy", "rotate", "textLength", "lengthAdjust",
+                    "font-family", "font-size", "font-weight", "font-style", "text-anchor")) continue
+                p.attrs[k] = v
+            }
+            p.setAttr("d", pd.write())
+            changes.add(Attach(p, parent, idx, doc.root, "font to path"))
+            changes.add(Detach(el, parent, idx, "font to path"))
+            newSel.add(p)
+        }
+        if (changes.isEmpty()) return false
+        val cs = ChangeSet(changes, "font to path", newSel)
+        cs.apply()
+        selection.clear()
+        selection.addAll(newSel)
+        undoStack.push(cs)
+        invalidateTrace()
+        updateNodeSession()
+        notifyChanged()
+        notifySelection()
+        return true
+    }
+
+    /**
+     * 指定文字列をカスタムフォントで path データとして生成（グリフ単位のSVG化用）。
+     * ViewModelのfontRegistryを使うため、Editor側では provider経由で呼び出す想定。
+     */
+    fun textToPathUsingFont(text: String, fontSize: Double, family: String, x: Double = 0.0, y: Double = 0.0,
+                            letterSpacing: Double = 0.0): PathData? {
+        val provider = textToPathProvider ?: return null
+        // 一時的なtext要素を作ってproviderに渡す（providerはElementを受け取る）
+        val tmp = Element("text")
+        tmp.setAttr("x", dev.svgpro.core.util.Numbers.format(x))
+        tmp.setAttr("y", dev.svgpro.core.util.Numbers.format(y))
+        tmp.setAttr("font-size", dev.svgpro.core.util.Numbers.format(fontSize))
+        tmp.setAttr("font-family", family)
+        if (letterSpacing != 0.0) tmp.setAttr("letter-spacing", dev.svgpro.core.util.Numbers.format(letterSpacing))
+        tmp.setTextContent(text)
+        return provider.invoke(tmp)
+    }
+
     fun booleanOp(op: GeometryOpKind) {
         val targets = selection.filter { PathData.parse(it.attr("d")) != null || Shapes.isPrimitive(it) }
         if (targets.size < 2) return

@@ -18,9 +18,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import android.graphics.Typeface
+import dev.svgpro.core.model.FontFace
 import dev.svgpro.core.model.Paint
+import dev.svgpro.core.model.StyleUtil
+import dev.svgpro.core.svg.Element
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.applyTransform
+import dev.svgpro.editor.fontToPathSelection
+import dev.svgpro.editor.textToPathUsingFont
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.setHandleNumeric
 import dev.svgpro.editor.replaceColorEverywhere
@@ -1523,6 +1529,191 @@ fun BrushPresetDialog(editor: Editor, onDismiss: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
+
+/** フォントマネージャーダイアログ（カスタムフォント TTF/OTF の読み込み・管理・プレビュー）。 */
+@Composable
+fun FontManagerDialog(
+    vm: dev.svgpro.EditorViewModel,
+    onDismiss: () -> Unit,
+    onFontSelected: ((String) -> Unit)? = null,
+) {
+    var newFamily by remember { mutableStateOf("") }
+    var fontUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val launcher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        fontUri = uri
+    }
+
+    fun loadSelectedFont() {
+        val uri = fontUri ?: return
+        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
+        val fam = newFamily.takeIf { it.isNotBlank() }
+        // URIからファイルパスを取得（file:スキームなら直接パス、それ以外はコピーしてキャッシュ）
+        var filePath: String? = null
+        if ("file".equals(uri.scheme, ignoreCase = true)) {
+            filePath = uri.path
+        } else {
+            // その他のURI（content://等）は一時ファイルにコピー
+            try {
+                resolver.openInputStream(uri)?.use { input ->
+                    val cache = java.io.File(dev.svgpro.AppContextHolder.get()!!.cacheDir, "fonts")
+                    cache.mkdirs()
+                    val outFile = java.io.File(cache, System.currentTimeMillis().toString() + ".font")
+                    java.io.FileOutputStream(outFile).use { output ->
+                        input.copyTo(output)
+                    }
+                    filePath = outFile.absolutePath
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        filePath?.let {
+            if (vm.loadFontFromFile(it, fam)) {
+                fontUri = null
+                newFamily = ""
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("フォントマネージャー") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(min = 340.dp)
+                    .heightIn(max = 520.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // フォント追加セクション
+                SectionTitle("フォント追加（TTF/OTF）")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(
+                        value = newFamily,
+                        onValueChange = { newFamily = it },
+                        label = { Text("ファミリ名", style = MaterialTheme.typography.bodySmall) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                    CompactButton("ファイル選択…", filled = true) {
+                        launcher.launch(arrayOf("application/x-font-ttf", "application/x-font-otf", "font/ttf", "font/otf", "*/*"))
+                    }
+                    CompactButton("読み込み", filled = true) {
+                        loadSelectedFont()
+                    }
+                }
+                Text(
+                    "TTF/OTFファイルを選択し、ファミリ名を指定して読み込みます。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Spacer(Modifier.height(4.dp))
+                Divider()
+
+                // 読み込み済みフォント一覧
+                SectionTitle("読み込み済みフォント (${vm.loadedFonts.size})")
+                if (vm.loadedFonts.isEmpty()) {
+                    Text(
+                        "カスタムフォントはありません。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(vm.loadedFonts, key = { it.family }) { font ->
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                // プレビュー（Aa サンプル）
+                                Box(
+                                    Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp)),
+                                ) {
+                                    Text(
+                                        "Aa",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.align(Alignment.Center),
+                                    )
+                                }
+                                Column {
+                                    Text(font.family, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                                    Text(
+                                        font.filePath?.let { "ファイル: $it" } ?: "(不明)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.weight(1f))
+                                if (onFontSelected != null) {
+                                    CompactButton("選択", filled = false) {
+                                        onFontSelected(font.family)
+                                    }
+                                }
+                                CompactButton("削除", filled = false) {
+                                    vm.removeFont(font.family)
+                                }
+                            }
+                            Divider()
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onDismiss() }) { Text("閉じる") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
+/** テキスト→パス変換確認ダイアログ。 */
+@Composable
+fun FontToPathDialog(
+    editor: dev.svgpro.editor.Editor,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("テキストをパスに変換") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "選択中のテキスト要素を、現在のフォント設定でパス（アウトライン）に変換します。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                val textCount = editor.selection.count { it.tag == "text" }
+                Text(
+                    "対象: $textCount 個のテキスト",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "変換後、元のテキストは削除されます。編集できなくなるので注意してください。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                editor.fontToPathSelection()
+                onDismiss()
+            }) { Text("変換") },
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
 }
 

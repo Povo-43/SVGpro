@@ -81,6 +81,9 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showNavigator by remember { mutableStateOf(false) }
     var showStylePreset by remember { mutableStateOf(false) }
     var showBrushPreset by remember { mutableStateOf(false) }
+    var showFontManager by remember { mutableStateOf(false) }
+    var showFontToPath by remember { mutableStateOf(false) }
+    var selectedFontFamily by remember { mutableStateOf<String?>(null) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -152,6 +155,12 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
     val imageImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importImage(vm, uri)
+    }
+
+    val fontImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            showFontManager = true
+        }
     }
 
     val swatchSaveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -233,6 +242,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onStylePreset = { showStylePreset = true },
                 onBrushPreset = { showBrushPreset = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
+                onFontManager = { showFontManager = true },
+                onFontToPath = { showFontToPath = true },
             )
 
             // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
@@ -576,6 +587,8 @@ private fun TopBar(
     onStylePreset: () -> Unit,
     onBrushPreset: () -> Unit,
     onHistory: () -> Unit,
+    onFontManager: () -> Unit,
+    onFontToPath: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onSave: () -> Unit,
@@ -710,6 +723,17 @@ private fun TopBar(
                         text = { Text("ブラシプリセット…") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onBrushPreset() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("フォントマネージャー…") },
+                        leadingIcon = { Icon(AppIcons.Font, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onFontManager() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("選択テキストをパス化") },
+                        leadingIcon = { Icon(AppIcons.Path, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.selection.any { it.tag == "text" },
+                        onClick = { onMenuDismiss(); onFontToPath() },
                     )
                     DropdownMenuItem(
                         text = { Text("マクロ記録…") },
