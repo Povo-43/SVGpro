@@ -1332,6 +1332,76 @@ fun MacroRecorderDialog(editor: Editor, onDismiss: () -> Unit) {
     )
 }
 
+/** コメント/注釈管理ダイアログ（カテゴリ17）。 */
+@Composable
+fun CommentDialog(editor: Editor, onDismiss: () -> Unit) {
+    var newText by remember { mutableStateOf("") }
+    var newAuthor by remember { mutableStateOf("匿名") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("コメント・注釈") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("投稿者", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+                    OutlinedTextField(
+                        value = newAuthor,
+                        onValueChange = { newAuthor = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("コメント", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+                    OutlinedTextField(
+                        value = newText,
+                        onValueChange = { newText = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                TextButton(onClick = {
+                    if (newText.isNotBlank()) {
+                        editor.addComment(100.0, 100.0, newText, newAuthor)
+                        newText = ""
+                        newAuthor = "匿名"
+                    }
+                }) {
+                    Text("コメントを追加", style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(Modifier.height(4.dp))
+                Divider()
+                Text("既存コメント", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                if (editor.comments.isEmpty()) {
+                    Text("コメントはありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    editor.comments.withIndex().forEach { (i, c) ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Column {
+                                Text("${c.author}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text("${dev.svgpro.core.util.Numbers.format(c.x, 0)}, ${dev.svgpro.core.util.Numbers.format(c.y, 0)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text(c.text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { editor.deleteComment(c.id) }) {
+                                Text("削除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
+
 /** RGB(ARGB) → CMYK（各値 0.0〜1.0）。 */
 private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
     val r = ((argb shr 16) and 0xFF) / 255.0

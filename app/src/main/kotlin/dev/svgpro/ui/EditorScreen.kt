@@ -77,6 +77,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showParametricShape by remember { mutableStateOf(false) }
     var showChart by remember { mutableStateOf(false) }
     var showMacroRecorder by remember { mutableStateOf(false) }
+    var showComments by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -224,6 +225,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onParametricShape = { showParametricShape = true },
                 onChart = { showChart = true },
                 onMacroRecorder = { showMacroRecorder = true },
+                onComments = { showComments = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -401,6 +403,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             MacroRecorderDialog(editor = editor, onDismiss = { showMacroRecorder = false })
         }
 
+        if (showComments) {
+            CommentDialog(editor = editor, onDismiss = { showComments = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -551,6 +557,7 @@ private fun TopBar(
     onParametricShape: () -> Unit,
     onChart: () -> Unit,
     onMacroRecorder: () -> Unit,
+    onComments: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -665,6 +672,11 @@ private fun TopBar(
                         text = { Text("チャート/グラフ生成…") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onChart() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("コメント/注釈…") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onComments() },
                     )
                     DropdownMenuItem(
                         text = { Text("マクロ記録…") },

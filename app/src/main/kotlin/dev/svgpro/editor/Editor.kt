@@ -416,6 +416,77 @@ class Editor {
     /** 編集が許可されるか。閲覧専用モード時は false。 */
     fun isEditable(): Boolean = !viewOnlyMode
 
+    // ―――― コメント/注釈機能（カテゴリ17） ――――
+
+    /** ドキュメント上のコメント/注釈。 */
+    data class Comment(val id: String, val x: Double, val y: Double, val text: String, val author: String, val timestamp: Long)
+
+    val comments = mutableListOf<Comment>()
+
+    /** コメントを追加する。 */
+    fun addComment(x: Double, y: Double, text: String, author: String = "匿名") {
+        val c = Comment(uniqueId("comment"), x, y, text, author, System.currentTimeMillis())
+        comments.add(c)
+        saveComments()
+        notifyChanged()
+    }
+
+    /** コメントを削除する。 */
+    fun deleteComment(id: String) {
+        comments.removeAll { it.id == id }
+        saveComments()
+        notifyChanged()
+    }
+
+    /** コメントのテキストを変更する。 */
+    fun editComment(id: String, text: String) {
+        val idx = comments.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            comments[idx] = comments[idx].copy(text = text)
+            saveComments()
+            notifyChanged()
+        }
+    }
+
+    /** コメント一覧をドキュメント属性に保存（可逆）。 */
+    private fun saveComments() {
+        val arr = comments.mapIndexed { i, c ->
+            mapOf(
+                "id" to c.id,
+                "x" to dev.svgpro.core.util.Numbers.format(c.x),
+                "y" to dev.svgpro.core.util.Numbers.format(c.y),
+                "text" to c.text,
+                "author" to c.author,
+                "timestamp" to c.timestamp,
+            )
+        }
+        doc.root.setAttr("data-svgpro-comments", dev.svgpro.core.util.Json.stringify(arr))
+    }
+
+    /** コメント一覧をドキュメント属性から復元（ドキュメント読み込き時に呼ぶ）。 */
+    fun restoreComments() {
+        comments.clear()
+        val s = doc.root.attr("data-svgpro-comments") ?: return
+        try {
+            val arr = dev.svgpro.core.util.Json.parse(s) ?: return
+            if (arr is List<*>) {
+                for (item in arr) {
+                    if (item is Map<*, *>) {
+                        val id = item["id"]?.toString() ?: uniqueId("comment")
+                        val x = item["x"]?.toString()?.toDoubleOrNull() ?: 0.0
+                        val y = item["y"]?.toString()?.toDoubleOrNull() ?: 0.0
+                        val text = item["text"]?.toString() ?: ""
+                        val author = item["author"]?.toString() ?: "匿名"
+                        val ts = item["timestamp"]?.toString()?.toLongOrNull() ?: System.currentTimeMillis()
+                        comments.add(Comment(id, x, y, text, author, ts))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 解析失敗時は空のまま
+        }
+    }
+
     // キャンバスビュー回転（度、正=画面上で時計回り）。editデータの座標は不変。
     var canvasRotation by mutableStateOf(0.0)
 
@@ -612,6 +683,7 @@ class Editor {
         guides.clear()
         guides.addAll(Guide.Codec.decode(doc.root.attr(Guide.ATTR)))
         doc.restoreArtboards()
+        restoreComments()
         currentArtboardIndex = 0
         keyObject = null
         lastTransformOp = null
