@@ -1276,6 +1276,58 @@ class Editor {
         }
     }
 
+    /** テキスト装飾（underline / line-through / none）を選択テキストへ適用 */
+    fun applyTextDecorationSelection(decoration: String) {
+        if (selection.isEmpty()) return
+        commit("text-decoration") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (decoration.equals("none", true)) {
+                    StyleUtil.removeProperty(el, "text-decoration")
+                } else {
+                    StyleUtil.setProperty(el, "text-decoration", decoration)
+                }
+            }
+        }
+    }
+
+    /** 文字間隔（letter-spacing）を選択テキストへ適用 */
+    fun applyTextLetterSpacingSelection(value: String) {
+        if (selection.isEmpty()) return
+        commit("letter-spacing") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "letter-spacing", value)
+            }
+        }
+    }
+
+    /** 行間（line-height）を選択テキストへ適用 */
+    fun applyTextLineHeightSelection(value: String) {
+        if (selection.isEmpty()) return
+        commit("line-height") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "line-height", value)
+            }
+        }
+    }
+
+    /** 垂直方向揃え（dominant-baseline）を選択テキストへ適用 */
+    fun applyTextVerticalAlignSelection(value: String) {
+        if (selection.isEmpty()) return
+        commit("dominant-baseline") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (value.equals("auto", true)) {
+                    StyleUtil.removeProperty(el, "dominant-baseline")
+                } else {
+                    StyleUtil.setProperty(el, "dominant-baseline", value)
+                }
+            }
+        }
+    }
+
     // ―――― 要素生成 ――――
 
     fun findParent(el: Element): Element? {

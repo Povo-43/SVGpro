@@ -397,6 +397,40 @@ fun PropertiesPanel(editor: Editor, refresh: Int) {
             Button(onClick = { textDialog = true }) { Text("テキストを編集…") }
             val textEl = sel.first { it.tag == "text" }
             TextAttrEditors(editor, textEl)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                listOf("none" to "なし", "underline" to "下線", "line-through" to "取り消し線").forEach { (v, label) ->
+                    AssistChip(onClick = { editor.applyTextDecorationSelection(v) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                var letterText by remember { mutableStateOf(StyleUtil.getProperty(textEl, "letter-spacing") ?: "") }
+                Text("字間", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = letterText,
+                    onValueChange = { letterText = it },
+                    modifier = Modifier.width(70.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = { editor.applyTextLetterSpacingSelection(letterText) }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                var lineText by remember { mutableStateOf(StyleUtil.getProperty(textEl, "line-height") ?: "") }
+                Text("行間", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = lineText,
+                    onValueChange = { lineText = it },
+                    modifier = Modifier.width(70.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = { editor.applyTextLineHeightSelection(lineText) }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                listOf("auto" to "自動", "alphabetic" to "アルファベット", "central" to "中央", "hanging" to "ハンギング").forEach { (v, label) ->
+                    AssistChip(onClick = { editor.applyTextVerticalAlignSelection(v) }, label = { Text(label, style = MaterialTheme.typography.labelSmall) })
+                }
+            }
         }
 
         // ―――― ノード編集 ――――
