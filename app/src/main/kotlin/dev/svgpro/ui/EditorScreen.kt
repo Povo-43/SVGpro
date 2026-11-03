@@ -640,6 +640,7 @@ private fun TopBar(
                     DropdownMenuItem(text = { Text("色の一括置換…") }, onClick = { onMenuDismiss(); onReplaceColor() })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("ドキュメント設定…") }, onClick = { onMenuDismiss(); onSettings() })
+                    DropdownMenuItem(text = { Text("ドキュメント複製") }, onClick = { onMenuDismiss(); editor.duplicateDocument() })
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("SVGソースコード編集…") },

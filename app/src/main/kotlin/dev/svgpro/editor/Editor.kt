@@ -2329,6 +2329,22 @@ class Editor {
         return result
     }
 
+    /** 現在のドキュメントを複製して新規ドキュメントとして開く。 */
+    fun duplicateDocument() {
+        val xml = doc.serialize()
+        val newDoc = try {
+            SvgLoader.load(::tokenSourceOf, xml)
+        } catch (e: Exception) {
+            null
+        } ?: return
+        val name = if (documentName.endsWith(".svg")) {
+            documentName.substringBeforeLast(".") + "_copy.svg"
+        } else {
+            documentName + "_copy.svg"
+        }
+        loadDocument(newDoc, name)
+    }
+
     // ―――― ドキュメントスナップショット（共有の基盤） ――――
 
     /** 現在のドキュメント状態を共有可能なJSONスナップショットとして出力する。
