@@ -381,7 +381,26 @@ class SvgRenderer {
                 cy += lineHeight
             }
         } else {
-            canvas.drawText(content, x, y, textPaint)
+            val textW = dev.svgpro.core.util.Numbers.parse(el.attr("width")) ?: 0.0
+            if (textW > 0.0) {
+                // 単語単位の自動折り返し（テキストボックス）
+                var cy = y
+                val words = content.split(" ")
+                var line = ""
+                for (w in words) {
+                    val trial = if (line.isEmpty()) w else line + " " + w
+                    if (textPaint.measureText(trial) > textW.toFloat()) {
+                        canvas.drawText(line, x, cy, textPaint)
+                        cy += fontSize * 1.2f
+                        line = w
+                    } else {
+                        line = trial
+                    }
+                }
+                if (line.isNotEmpty()) canvas.drawText(line, x, cy, textPaint)
+            } else {
+                canvas.drawText(content, x, y, textPaint)
+            }
         }
         // テキスト装飾（下線・取り消し線）
         val decoration = StyleUtil.getProperty(el, "text-decoration")
