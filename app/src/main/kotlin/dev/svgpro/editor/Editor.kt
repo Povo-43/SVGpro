@@ -23,6 +23,9 @@ import dev.svgpro.core.path.PathData
 import dev.svgpro.core.path.Seg
 import dev.svgpro.core.path.SubpathNodes
 import dev.svgpro.core.svg.Element
+import dev.svgpro.core.svg.SvgLoader
+import dev.svgpro.core.svg.SvgOptimizer
+import dev.svgpro.core.svg.SvgWriter
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -1700,6 +1703,44 @@ class Editor {
             cur = findParent(cur)
         }
         return if (prop == "fill") Paint.Solid(0xFF000000.toInt()) else Paint.None
+    }
+
+    // ―――― SVGソースコード直接編集 ――――
+
+    /** 現在のドキュメントをSVG文字列として取得（整形済み） */
+    fun svgSource(): String = SvgWriter.write(doc.root)
+
+    /**
+     * SVGソース文字列からドキュメントを置き換える。
+     * 解析失敗時は false を返し、ドキュメントは変更されない。
+     * （ソース置換はドキュメント全体を再構築するため、個別のUndoエントリは作成しない）
+     */
+    fun replaceSvgSource(source: String): Boolean {
+        val newDoc = try {
+            SvgLoader.load(::tokenSourceOf, source)
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        loadDocument(newDoc, documentName)
+        return true
+    }
+
+    private fun tokenSourceOf(xml: String): dev.svgpro.core.svg.TokenSource {
+        val queue = dev.svgpro.AndroidTokenSource.tokenQueue(xml)
+        return object : dev.svgpro.core.svg.TokenSource {
+            override fun next(): dev.svgpro.core.svg.Token =
+                queue.removeFirstOrNull() ?: dev.svgpro.core.svg.Token.EndDocument
+        }
+    }
+
+    /** ドキュメントを最適化（重複ID付け直し・未使用def削除）。結果を返す */
+    fun optimizeSvgDocument(): SvgOptimizer.OptimizationResult {
+        val result = SvgOptimizer.optimize(doc.root)
+        if (result.changed) {
+            notifyChanged()
+            notifySelection()
+        }
+        return result
     }
 }
 

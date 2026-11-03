@@ -67,6 +67,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showExportPng by remember { mutableStateOf(false) }
     var showReplaceColor by remember { mutableStateOf(false) }
     var showTransform by remember { mutableStateOf(false) }
+    var showSvgSource by remember { mutableStateOf(false) }
+    var showSvgOptimize by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -184,6 +186,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onReplaceColor = { showReplaceColor = true },
                 onTransform = { showTransform = true },
                 onSettings = { showDocSettings = true },
+                onSvgSource = { showSvgSource = true },
+                onSvgOptimize = { showSvgOptimize = true },
             )
 
             // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
@@ -327,6 +331,14 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             }
         }
 
+        if (showSvgSource) {
+            SvgSourceDialog(editor = editor, onDismiss = { showSvgSource = false })
+        }
+
+        if (showSvgOptimize) {
+            SvgOptimizeDialog(editor = editor, onDismiss = { showSvgOptimize = false })
+        }
+
         if (showRestoreConfirm) {
             AlertDialog(
                 onDismissRequest = { showRestoreConfirm = false },
@@ -426,6 +438,8 @@ private fun TopBar(
     onReplaceColor: () -> Unit,
     onTransform: () -> Unit,
     onSettings: () -> Unit,
+    onSvgSource: () -> Unit,
+    onSvgOptimize: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onSave: () -> Unit,
@@ -485,6 +499,17 @@ private fun TopBar(
                     DropdownMenuItem(text = { Text("色の一括置換…") }, onClick = { onMenuDismiss(); onReplaceColor() })
                     HorizontalDivider()
                     DropdownMenuItem(text = { Text("ドキュメント設定…") }, onClick = { onMenuDismiss(); onSettings() })
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("SVGソースコード編集…") },
+                        leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onSvgSource() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("SVG最適化・検証…") },
+                        leadingIcon = { Icon(AppIcons.PathOps, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onSvgOptimize() },
+                    )
                 }
             }
 

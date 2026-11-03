@@ -671,3 +671,106 @@ fun DocumentSettingsDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
 }
+
+/**
+ * SVGソースコード直接編集ダイアログ。
+ * ドキュメント全体をXML文字列として編集・適用できる。
+ */
+@Composable
+fun SvgSourceDialog(
+    editor: Editor,
+    onDismiss: () -> Unit,
+) {
+    var source by remember { mutableStateOf(editor.svgSource()) }
+    LaunchedEffect(editor.svgSource()) { source = editor.svgSource() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SVGソースコード編集") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().widthIn(min = 320.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "SVGコードを直接編集し、適用ボタンでドキュメントに反映します。不正なSVGは適用されません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextField(
+                    value = source,
+                    onValueChange = { source = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 240.dp),
+                    minLines = 12,
+                    maxLines = 24,
+                    singleLine = false,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (editor.replaceSvgSource(source)) {
+                    onDismiss()
+                }
+            }) { Text("適用") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
+/**
+ * SVG最適化ダイアログ。
+ * 検証結果（ID重複・ダングリング参照・未使用def）を表示し、最適化を実行する。
+ */
+@Composable
+fun SvgOptimizeDialog(
+    editor: Editor,
+    onDismiss: () -> Unit,
+) {
+    var result by remember { mutableStateOf<SvgOptimizer.OptimizationResult?>(null) }
+    val validation by remember(result) { mutableStateOf(result?.validation) }
+
+    fun runOptimize() {
+        val r = editor.optimizeSvgDocument()
+        result = r
+    }
+
+    LaunchedEffect(Unit) { runOptimize() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SVG最適化・検証") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val v = validation
+                if (v == null) {
+                    CircularProgressIndicator(modifier = Modifier.height(16.dp))
+                } else {
+                    Text(
+                        "状態: ${if (v.isValid) "正常" else "問題あり（最適化で修正可能）"}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (v.isValid) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
+                    )
+                    if (v.duplicateIds.isNotEmpty()) {
+                        Text("ID重複: ${v.duplicateIds.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (v.danglingRefs.isNotEmpty()) {
+                        Text("未解決参照: ${v.danglingRefs.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (v.unusedDefIds.isNotEmpty()) {
+                        Text("未使用定義: ${v.unusedDefIds.joinToString(", ")}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (v.isValid && v.duplicateIds.isEmpty() && v.danglingRefs.isEmpty() && v.unusedDefIds.isEmpty()) {
+                        Text("最適化対象はありません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (validation == null || validation.isValid) {
+                TextButton(onClick = { onDismiss() }, enabled = false) { Text("最適化") }
+            } else {
+                TextButton(onClick = { runOptimize(); onDismiss() }) { Text("最適化して閉じる") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
