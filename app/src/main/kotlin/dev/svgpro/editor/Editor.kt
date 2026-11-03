@@ -1311,6 +1311,112 @@ class Editor {
         } ?: "center"
     }
 
+    // ―――― エフェクト（ぼかし・ドロップシャドウ・光彩・色調） ――――
+
+    /** ガウスぼかし半径を選択要素に適用（user単位）。data-svgpro-effect-blur 属性で保持。 */
+    fun applyEffectBlurToSelection(radius: Double) {
+        if (selection.isEmpty()) return
+        commit("effect-blur") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (radius <= 0.0) {
+                    StyleUtil.removeProperty(el, "data-svgpro-effect-blur")
+                    el.setAttr("data-svgpro-effect-blur", null)
+                } else {
+                    StyleUtil.setProperty(el, "data-svgpro-effect-blur", dev.svgpro.core.util.Numbers.format(radius.coerceIn(0.0, 256.0)))
+                }
+            }
+        }
+    }
+
+    /** 選択要素のぼかし半径を取得（未設定なら 0）。 */
+    fun selectionEffectBlur(): Double {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(it, "data-svgpro-effect-blur")
+            if (s == null) 0.0 else dev.svgpro.core.util.Numbers.parse(s) ?: 0.0
+        } ?: 0.0
+    }
+
+    /** ドロップシャドウを選択要素に適用。data-svgpro-effect-dropshadow="dx dy blur color"。 */
+    fun applyEffectDropShadowToSelection(dx: Double, dy: Double, blur: Double, color: Int) {
+        if (selection.isEmpty()) return
+        commit("effect-dropshadow") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (blur <= 0.0) {
+                    StyleUtil.removeProperty(el, "data-svgpro-effect-dropshadow")
+                    el.setAttr("data-svgpro-effect-dropshadow", null)
+                } else {
+                    StyleUtil.setProperty(el, "data-svgpro-effect-dropshadow",
+                        "${dev.svgpro.core.util.Numbers.format(dx)} ${dev.svgpro.core.util.Numbers.format(dy)} " +
+                        "${dev.svgpro.core.util.Numbers.format(blur.coerceIn(0.0, 256.0))} ${dev.svgpro.core.model.Color.css(color)}")
+                }
+            }
+        }
+    }
+
+    /** 選択要素のドロップシャドウ設定を取得（未設定なら null）。 */
+    fun selectionEffectDropShadow(): Triple<Double, Double, Double>? {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(it, "data-svgpro-effect-dropshadow") ?: return null
+            val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+            if (parts.size < 3) null else Triple(parts[0], parts[1], parts[2])
+        }
+    }
+
+    /** 外側光彩を選択要素に適用。data-svgpro-effect-glow="blur color"。 */
+    fun applyEffectGlowToSelection(blur: Double, color: Int) {
+        if (selection.isEmpty()) return
+        commit("effect-glow") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (blur <= 0.0) {
+                    StyleUtil.removeProperty(el, "data-svgpro-effect-glow")
+                    el.setAttr("data-svgpro-effect-glow", null)
+                } else {
+                    StyleUtil.setProperty(el, "data-svgpro-effect-glow",
+                        "${dev.svgpro.core.util.Numbers.format(blur.coerceIn(0.0, 256.0))} ${dev.svgpro.core.model.Color.css(color)}")
+                }
+            }
+        }
+    }
+
+    /** 選択要素の光彩設定を取得（未設定なら null）。 */
+    fun selectionEffectGlow(): Pair<Double, Int>? {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(it, "data-svgpro-effect-glow") ?: return null
+            val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (parts.size < 2) null else {
+                val radius = dev.svgpro.core.util.Numbers.parse(parts[0]) ?: 0.0
+                val c = dev.svgpro.core.model.Color.parse(parts[1]) ?: 0xFF000000.toInt()
+                Pair(radius, c)
+            }
+        }
+    }
+
+    /** 色調変更（ColorMatrix）を選択要素に適用。data-svgpro-effect-colormatrix="a b c d e f g h i j"。 */
+    fun applyEffectColorMatrixToSelection(matrix: String) {
+        if (selection.isEmpty()) return
+        commit("effect-colormatrix") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (matrix.isBlank()) {
+                    StyleUtil.removeProperty(el, "data-svgpro-effect-colormatrix")
+                    el.setAttr("data-svgpro-effect-colormatrix", null)
+                } else {
+                    StyleUtil.setProperty(el, "data-svgpro-effect-colormatrix", matrix)
+                }
+            }
+        }
+    }
+
+    /** 選択要素の色調行列文字列を取得（未設定なら null）。 */
+    fun selectionEffectColorMatrix(): String? {
+        return selection.firstOrNull()?.let { v ->
+            StyleUtil.getProperty(it, "data-svgpro-effect-colormatrix")
+        }
+    }
+
     fun applyOpacityToSelection(opacity: Double) {
         if (selection.isEmpty()) return
         commit("opacity") { batch ->

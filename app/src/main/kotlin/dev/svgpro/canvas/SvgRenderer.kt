@@ -3,8 +3,11 @@ package dev.svgpro.canvas
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.DashPathEffect
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -133,10 +136,43 @@ class SvgRenderer {
         val stroke = editor.inheritedPaint(el, "stroke")
         val elementOpacity = StyleUtil.opacity(el)
 
+        // エフェクト属性の読み取り
+        val blurRadius = parseBlur(el)
+        val dropShadow = parseDropShadow(el)
+        val glow = parseGlow(el)
+        val colorMatrix = parseColorMatrix(el)
+
+        // ドロップシャドウ・光彩：塗り/線の下にぼかしたコピーを描画
+        if (dropShadow != null || glow != null) {
+            val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                antiAlias = true
+            }
+            val (shadowColor, shadowBlur, shadowDx, shadowDy) = if (dropShadow != null) {
+                dropShadow
+            } else {
+                glow!!.let { (it.second, it.first, 0.0, 0.0) }
+            }
+            shadowPaint.color = shadowColor
+            if (shadowBlur > 0.0) {
+                shadowPaint.maskFilter = BlurMaskFilter(shadowBlur.toFloat(), BlurMaskFilter.Blur.NORMAL)
+            }
+            canvas.save()
+            canvas.translate(shadowDx.toFloat(), shadowDy.toFloat())
+            canvas.drawPath(path, shadowPaint)
+            canvas.restore()
+        }
+
         if (fill !is SvgPaint.None && !editor.showOutlineMode) {
             configurePaint(fillPaint, fill, el, item, editor, true)
             fillPaint.alpha = (fillPaint.alpha * elementOpacity).toInt().coerceIn(0, 255)
+            if (blurRadius > 0.0) {
+                fillPaint.maskFilter = BlurMaskFilter(blurRadius.toFloat(), BlurMaskFilter.Blur.NORMAL)
+            }
+            colorMatrix?.let { fillPaint.setColorFilter(ColorMatrixColorFilter(it)) }
             canvas.drawPath(path, fillPaint)
+            fillPaint.maskFilter = null
+            fillPaint.colorFilter = null
         }
         if (stroke !is SvgPaint.None) {
             configurePaint(strokePaint, stroke, el, item, editor, false)
@@ -147,6 +183,10 @@ class SvgRenderer {
             join(el)?.let { strokePaint.strokeJoin = it }
             dash(el)?.let { strokePaint.pathEffect = it }
             strokePaint.alpha = (strokePaint.alpha * elementOpacity).toInt().coerceIn(0, 255)
+            if (blurRadius > 0.0) {
+                strokePaint.maskFilter = BlurMaskFilter(blurRadius.toFloat(), BlurMaskFilter.Blur.NORMAL)
+            }
+            colorMatrix?.let { strokePaint.setColorFilter(ColorMatrixColorFilter(it)) }
             // 線の位置調整（内側/中央/外側）。オフセット距離は user 単位。
             val align = StyleUtil.getProperty(el, "data-svgpro-stroke-align")
             val strokeGeo = when (align) {
@@ -155,8 +195,46 @@ class SvgRenderer {
                 else -> geo
             }
             canvas.drawPath(toAndroidPath(strokeGeo), strokePaint)
+            strokePaint.maskFilter = null
+            strokePaint.colorFilter = null
         }
     }
+
+    /** data-svgpro-effect-blur 半径（user単位）。未設定なら0。 */
+    private fun parseBlur(el: Element): Double {
+        val s = StyleUtil.getProperty(el, "data-svgpro-effect-blur") ?: return 0.0
+        return dev.svgpro.core.util.Numbers.parse(s) ?: 0.0
+    }
+
+    /** data-svgpro-effect-dropshadow="dx dy blur color"。未設定ならnull。 */
+    private fun parseDropShadow(el: Element): Tuple4<Double, Double, Double, Int>? {
+        val s = StyleUtil.getProperty(el, "data-svgpro-effect-dropshadow") ?: return null
+        val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+        if (parts.size < 4) return null
+        val c = dev.svgpro.core.model.Color.parse(parts.getOrNull(3)?.toString() ?: "") ?: 0xFF000000.toInt()
+        return Tuple4(parts[0], parts[1], parts[2], c)
+    }
+
+    /** data-svgpro-effect-glow="blur color"。未設定ならnull。 */
+    private fun parseGlow(el: Element): Pair<Double, Int>? {
+        val s = StyleUtil.getProperty(el, "data-svgpro-effect-glow") ?: return null
+        val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (parts.size < 2) return null
+        val radius = dev.svgpro.core.util.Numbers.parse(parts[0]) ?: 0.0
+        val c = dev.svgpro.core.model.Color.parse(parts[1]) ?: 0xFF000000.toInt()
+        return Pair(radius, c)
+    }
+
+    /** data-svgpro-effect-colormatrix="m00 m01 ... m19"（20値）。未設定ならnull。 */
+    private fun parseColorMatrix(el: Element): FloatArray? {
+        val s = StyleUtil.getProperty(el, "data-svgpro-effect-colormatrix") ?: return null
+        val vals = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { it.toFloat() }
+        if (vals.size != 20) return null
+        return FloatArray(20) { i -> vals[i] }
+    }
+
+    /** Tuple4ヘルパ（dropshadow パース結果） */
+    private class Tuple4<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
     private fun configurePaint(
         paint: Paint,

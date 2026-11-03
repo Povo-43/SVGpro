@@ -226,6 +226,70 @@ fun PropertiesPanel(
             Text("${(opacity * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(38.dp))
         }
 
+        // ―――― エフェクト ――――
+        if (hasSel) {
+            SectionTitle("エフェクト")
+            // ぼかし
+            var blurText by remember { mutableStateOf(editor.selectionEffectBlur().toString()) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("ぼかし", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                OutlinedTextField(
+                    value = blurText,
+                    onValueChange = { blurText = it },
+                    modifier = Modifier.width(70.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = {
+                    dev.svgpro.core.util.Numbers.parse(blurText)?.let { editor.applyEffectBlurToSelection(it) }
+                }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+            }
+            // ドロップシャドウ
+            var shadowText by remember { mutableStateOf("4 4 8 #00000080") }
+            val curShadow = editor.selectionEffectDropShadow()
+            if (curShadow != null) {
+                shadowText = "${dev.svgpro.core.util.Numbers.format(curShadow.first)} ${dev.svgpro.core.util.Numbers.format(curShadow.second)} ${dev.svgpro.core.util.Numbers.format(curShadow.third)} #00000080"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("ドロップシャドウ", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(88.dp))
+                OutlinedTextField(
+                    value = shadowText,
+                    onValueChange = { shadowText = it },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = {
+                    val parts = shadowText.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+                    if (parts.size >= 3) {
+                        editor.applyEffectDropShadowToSelection(parts[0], parts[1], parts[2], 0xFF000000.toInt())
+                    }
+                }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+            }
+            // 光彩
+            var glowText by remember { mutableStateOf("8 #FFFFFF80") }
+            val curGlow = editor.selectionEffectGlow()
+            if (curGlow != null) {
+                glowText = "${dev.svgpro.core.util.Numbers.format(curGlow.first)} #FFFFFF80"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("光彩", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                OutlinedTextField(
+                    value = glowText,
+                    onValueChange = { glowText = it },
+                    modifier = Modifier.width(100.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = {
+                    val parts = glowText.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+                    if (parts.size >= 1) {
+                        editor.applyEffectGlowToSelection(parts[0], 0xFFFFFF80.toInt())
+                    }
+                }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+            }
+        }
+
         // ―――― 選択 ――――
         if (hasSel) {
             SectionTitle("選択")
