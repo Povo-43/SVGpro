@@ -375,7 +375,7 @@ class SvgRenderer {
         val isVertical = writingMode.equals("vertical-lr", true) || writingMode.equals("vertical-rl", true)
         if (isVertical) {
             var cy = y
-            val lineHeight = fontSize * 1.2f
+            val lineHeight = fontSize * lineHeightFactor(el).toFloat()
             for (ch in content) {
                 canvas.drawText(ch.toString(), x, cy, textPaint)
                 cy += lineHeight
@@ -391,7 +391,7 @@ class SvgRenderer {
                     val trial = if (line.isEmpty()) w else line + " " + w
                     if (textPaint.measureText(trial) > textW.toFloat()) {
                         canvas.drawText(line, x, cy, textPaint)
-                        cy += fontSize * 1.2f
+                        cy += fontSize * lineHeightFactor(el).toFloat()
                         line = w
                     } else {
                         line = trial
@@ -441,6 +441,15 @@ class SvgRenderer {
         return if (bold || italic) {
             android.graphics.Typeface.create(base, (if (bold) android.graphics.Typeface.BOLD else 0) or (if (italic) android.graphics.Typeface.ITALIC else 0))
         } else base
+    }
+
+    /** line-height の倍率を取得（未指定・未解析時は 1.2）。数値またはパーセントに対応。 */
+    private fun lineHeightFactor(el: Element): Double {
+        val s = StyleUtil.getProperty(el, "line-height") ?: return 1.2
+        return when {
+            s.endsWith("%") -> (dev.svgpro.core.util.Numbers.parse(s.dropLast(1)) ?: 120.0) / 100.0
+            else -> dev.svgpro.core.util.Numbers.parse(s) ?: 1.2
+        }
     }
 
     /**
