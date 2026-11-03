@@ -1190,6 +1190,75 @@ fun ParametricShapeDialog(editor: Editor, onDismiss: () -> Unit) {
     )
 }
 
+/** チャート/グラフ生成ダイアログ（カテゴリ17）。 */
+@Composable
+fun ChartDialog(editor: Editor, onDismiss: () -> Unit) {
+    var chartType by remember { mutableStateOf("bar") }
+    var valuesText by remember { mutableStateOf("30,50,70,40,60") }
+    var sizeText by remember { mutableStateOf("200") }
+
+    fun create() {
+        val cx = 100.0
+        val cy = 100.0
+        val s = dev.svgpro.core.util.Numbers.parse(sizeText) ?: 100.0
+        val rawValues = valuesText.split(",").filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+        val values = if (rawValues.isEmpty()) listOf(0.5) else rawValues
+        val pd = when (chartType) {
+            "bar" -> editor.barChartPath(cx, cy, s, s, values)
+            "pie" -> editor.pieChartPath(cx, cy, s / 2, s / 4, values)
+            "line" -> editor.lineChartPath(cx, cy, s, s, values)
+            else -> editor.barChartPath(cx, cy, s, s, values)
+        }
+        val el = dev.svgpro.core.svg.Element("path")
+        el.setAttr("d", pd.write())
+        editor.applyCurrentStyle(el)
+        editor.addElement(el, "chart ${chartType}")
+        onDismiss()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("チャート/グラフ生成") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("種類", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                    listOf("bar" to "棒グラフ", "pie" to "円グラフ", "line" to "折れ線グラフ").forEach { (v, label) ->
+                        AssistChip(
+                            selected = chartType == v,
+                            onClick = { chartType = v },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("値（カンマ区切り）", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(96.dp))
+                    OutlinedTextField(
+                        value = valuesText, onValueChange = { valuesText = it },
+                        modifier = Modifier.weight(1f), singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("サイズ", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                    OutlinedTextField(
+                        value = sizeText, onValueChange = { sizeText = it },
+                        modifier = Modifier.width(80.dp), singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Text(
+                    "値は0〜100の数値をカンマ区切りで入力（例: 30,50,70,40,60）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = create) { Text("生成") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
 /** RGB(ARGB) → CMYK（各値 0.0〜1.0）。 */
 private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
     val r = ((argb shr 16) and 0xFF) / 255.0

@@ -75,6 +75,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showContextMenu by remember { mutableStateOf(false) }
     var contextMenuPos by remember { mutableStateOf(FloatArray(2)) }
     var showParametricShape by remember { mutableStateOf(false) }
+    var showChart by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -220,6 +221,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onCommandPalette = { showCommandPalette = true },
                 onShortcutCustomize = { showShortcutCustomize = true },
                 onParametricShape = { showParametricShape = true },
+                onChart = { showChart = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -389,6 +391,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             ParametricShapeDialog(editor = editor, onDismiss = { showParametricShape = false })
         }
 
+        if (showChart) {
+            ChartDialog(editor = editor, onDismiss = { showChart = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -537,6 +543,7 @@ private fun TopBar(
     onCommandPalette: () -> Unit,
     onShortcutCustomize: () -> Unit,
     onParametricShape: () -> Unit,
+    onChart: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -646,6 +653,11 @@ private fun TopBar(
                         text = { Text("パラメトリック図形生成…") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onParametricShape() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("チャート/グラフ生成…") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onChart() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },

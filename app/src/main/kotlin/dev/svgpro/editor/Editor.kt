@@ -1910,6 +1910,71 @@ class Editor {
         return PathData(segs)
     }
 
+    // ―――― チャート/グラフ生成（カテゴリ17） ――――
+
+    /** 棒グラフ（バーチャート）パスを生成。values は 0〜1 の正規化済み値リスト。 */
+    fun barChartPath(cx: Double, cy: Double, width: Double, height: Double, values: List<Double>): PathData {
+        val segs = ArrayList<Seg>()
+        val n = values.size.coerceAtLeast(1)
+        val barW = width / n * 0.7
+        val gap = width / n * 0.3
+        for (i in values.indices) {
+            val v = values[i].coerceIn(0.0, 1.0)
+            val bx = cx - width / 2 + i * (barW + gap) + gap / 2
+            val by = cy + height / 2 - v * height
+            val bw = barW
+            val bh = v * height
+            // 矩形を 4 セグメントで構成
+            segs.add(Seg.Move(bx, cy + height / 2))
+            segs.add(Seg.Line(bx + bw, cy + height / 2))
+            segs.add(Seg.Line(bx + bw, by))
+            segs.add(Seg.Line(bx, by))
+            segs.add(Seg.Close)
+        }
+        return PathData(segs)
+    }
+
+    /** 円グラフ（パイチャート）パスを生成。values は 0〜1 の正規化済み値リスト（合計 1.0 を想定）。 */
+    fun pieChartPath(cx: Double, cy: Double, outerR: Double, innerR: Double, values: List<Double>): PathData {
+        val segs = ArrayList<Seg>()
+        val total = values.sum().coerceAtLeast(1e-9)
+        var startAngle = -Math.PI / 2 // 12 時方向から開始
+        for (v in values) {
+            if (v <= 0.0) continue
+            val sweep = 2 * Math.PI * (v / total)
+            val x1 = cx + outerR * kotlin.math.cos(startAngle)
+            val y1 = cy + outerR * kotlin.math.sin(startAngle)
+            val x2 = cx + outerR * kotlin.math.cos(startAngle + sweep)
+            val y2 = cy + outerR * kotlin.math.sin(startAngle + sweep)
+            val largeArc = sweep > Math.PI
+            // 中心→外周→アーク→内周→中心 の閉じたパス
+            segs.add(Seg.Move(cx, cy))
+            segs.add(Seg.Line(x1, y1))
+            segs.add(Seg.Arc(outerR, outerR, 0.0, largeArc, true, x2, y2))
+            segs.add(Seg.Line(cx + innerR * kotlin.math.cos(startAngle + sweep), cy + innerR * kotlin.math.sin(startAngle + sweep)))
+            // 内側を逆方向のアークで戻す
+            segs.add(Seg.Arc(innerR, innerR, 0.0, sweep > Math.PI, false, cx + innerR * kotlin.math.cos(startAngle), cy + innerR * kotlin.math.sin(startAngle)))
+            segs.add(Seg.Close)
+            startAngle += sweep
+        }
+        return PathData(segs)
+    }
+
+    /** 折れ線グラフ（ラインチャート）パスを生成。values は 0〜1 の正規化済み値リスト。 */
+    fun lineChartPath(cx: Double, cy: Double, width: Double, height: Double, values: List<Double>): PathData {
+        val segs = ArrayList<Seg>()
+        val n = values.size.coerceAtLeast(1)
+        if (n < 2) return PathData(segs)
+        val step = width / (n - 1)
+        for (i in values.indices) {
+            val v = values[i].coerceIn(0.0, 1.0)
+            val x = cx - width / 2 + i * step
+            val y = cy + height / 2 - v * height
+            if (i == 0) segs.add(Seg.Move(x, y)) else segs.add(Seg.Line(x, y))
+        }
+        return PathData(segs)
+    }
+
     // ―――― パス操作（高度） ――――
 
     fun convertToPath(elems: List<Element>): Boolean {
