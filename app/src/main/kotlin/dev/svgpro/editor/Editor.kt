@@ -2587,6 +2587,51 @@ class Editor {
             notifyChanged()
         }
     }
+
+    // ―――― ラスタライズ（カテゴリ12） ――――
+
+    /** 選択要素をラスタライズして埋め込み画像（data URI PNG）に変換する。
+     *  @param scale 出力ピクセル寸法の倍率（1.0 = viewBoxサイズ）
+     */
+    fun rasterizeSelection(scale: Double = 1.0) {
+        if (selection.isEmpty()) return
+        val bounds = trace.boundsOf(selection) ?: return
+        val w = (bounds.width * scale).coerceAtLeast(1.0).toInt()
+        val h = (bounds.height * scale).coerceAtLeast(1.0).toInt()
+        val bmp = renderToBitmap(Pair(w, h), transparent = true, selectionOnly = true)
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        bmp.recycle()
+        val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+        val dataUri = "data:image/png;base64,$base64"
+
+        val changes = ArrayList<dev.svgpro.core.edit.Change>()
+        val newSel = ArrayList<dev.svgpro.core.svg.Element>()
+        for (el in selection.toList()) {
+            val parent = findParent(el) ?: continue
+            val idx = parent.children.indexOf(el).coerceAtLeast(0)
+            val img = dev.svgpro.core.svg.Element("image")
+            img.setAttr("href", dataUri)
+            img.setAttr("xlink:href", dataUri)
+            img.setAttr("x", dev.svgpro.core.util.Numbers.format(bounds.x))
+            img.setAttr("y", dev.svgpro.core.util.Numbers.format(bounds.y))
+            img.setAttr("width", dev.svgpro.core.util.Numbers.format(bounds.width))
+            img.setAttr("height", dev.svgpro.core.util.Numbers.format(bounds.height))
+            changes.add(Attach(img, parent, idx, doc.root, "rasterize"))
+            changes.add(Detach(el, parent, idx, "rasterize"))
+            newSel.add(img)
+        }
+        if (changes.isEmpty()) return
+        val cs = ChangeSet(changes, "rasterize", newSel)
+        cs.apply()
+        selection.clear()
+        selection.addAll(newSel)
+        undoStack.push(cs)
+        invalidateTrace()
+        updateNodeSession()
+        notifyChanged()
+        notifySelection()
+    }
 }
 
 enum class GeometryOpKind { UNION, DIFFERENCE, INTERSECTION, XOR }

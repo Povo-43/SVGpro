@@ -328,6 +328,24 @@ fun PropertiesPanel(
                     AssistChip(onClick = { editor.selectChildren() }, label = { Text("内部へ", style = MaterialTheme.typography.labelSmall) })
                 }
             }
+
+            // ラスタライズ
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                Text("倍率", style = MaterialTheme.typography.labelMedium)
+                var scaleText by remember { mutableStateOf("1.0") }
+                OutlinedTextField(
+                    value = scaleText,
+                    onValueChange = { scaleText = it },
+                    modifier = Modifier.width(50.dp),
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = {
+                    val s = dev.svgpro.core.util.Numbers.parse(scaleText) ?: 1.0
+                    editor.rasterizeSelection(s)
+                }) { Text("ラスタライズ", style = MaterialTheme.typography.labelSmall) }
+                Text("(ベクタ→埋め込み画像)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         // ―――― 整列 ――――
