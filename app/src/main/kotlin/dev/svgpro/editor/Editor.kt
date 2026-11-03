@@ -487,6 +487,101 @@ class Editor {
         }
     }
 
+    // ―――― スタイルプリセット（カテゴリ6/17） ――――
+
+    /** 塗り・線・線幅のプリセット。 */
+    data class StylePreset(
+        val name: String,
+        val fill: dev.svgpro.core.model.Paint,
+        val stroke: dev.svgpro.core.model.Paint,
+        val strokeWidth: Double,
+    )
+
+    /** スタイルプリセット一覧。 */
+    val stylePresets = mutableListOf<StylePreset>()
+
+    /** 現在の塗り・線・線幅をプリセットとして保存する。 */
+    fun saveStylePreset(name: String) {
+        stylePresets.removeAll { it.name == name }
+        stylePresets.add(StylePreset(name, editor.curFill, editor.curStroke, editor.curStrokeWidth))
+        saveStylePresets()
+        notifyChanged()
+    }
+
+    /** プリセットを現在の塗り・線・線幅に適用する。 */
+    fun applyStylePreset(index: Int) {
+        if (index in stylePresets.indices) {
+            val p = stylePresets[index]
+            editor.curFill = p.fill
+            editor.curStroke = p.stroke
+            editor.curStrokeWidth = p.strokeWidth
+            editor.onChanged()
+        }
+    }
+
+    /** プリセットを削除する。 */
+    fun deleteStylePreset(index: Int) {
+        if (index in stylePresets.indices) {
+            stylePresets.removeAt(index)
+            saveStylePresets()
+            notifyChanged()
+        }
+    }
+
+    /** スタイルプリセットをドキュメント属性に保存（可逆）。 */
+    private fun saveStylePresets() {
+        val arr = stylePresets.mapIndexed { i, p ->
+            mapOf(
+                "id" to "preset_$i",
+                "name" to p.name,
+                "fill" to when (p.fill) {
+                    is dev.svgpro.core.model.Paint.None -> "none"
+                    is dev.svgpro.core.model.Paint.Solid -> dev.svgpro.core.model.Color.css(p.fill.argb)
+                    is dev.svgpro.core.model.Paint.Server -> "url(#${p.fill.id})"
+                },
+                "stroke" to when (p.stroke) {
+                    is dev.svgpro.core.model.Paint.None -> "none"
+                    is dev.svgpro.core.model.Paint.Solid -> dev.svgpro.core.model.Color.css(p.stroke.argb)
+                    is dev.svgpro.core.model.Paint.Server -> "url(#${p.stroke.id})"
+                },
+                "strokeWidth" to dev.svgpro.core.util.Numbers.format(p.strokeWidth),
+            )
+        }
+        doc.root.setAttr("data-svgpro-style-presets", dev.svgpro.core.util.Json.stringify(arr))
+    }
+
+    /** スタイルプリセットをドキュメント属性から復元。 */
+    fun restoreStylePresets() {
+        stylePresets.clear()
+        val s = doc.root.attr("data-svgpro-style-presets") ?: return
+        try {
+            val arr = dev.svgpro.core.util.Json.parse(s) ?: return
+            if (arr is List<*>) {
+                for (item in arr) {
+                    if (item is Map<*, *>) {
+                        val name = item["name"]?.toString() ?: "プリセット"
+                        val fill = parsePaint(item["fill"]?.toString())
+                        val stroke = parsePaint(item["stroke"]?.toString())
+                        val strokeWidth = item["strokeWidth"]?.toString()?.toDoubleOrNull() ?: 2.0
+                        stylePresets.add(StylePreset(name, fill, stroke, strokeWidth))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 解析失敗時は空のまま
+        }
+    }
+
+    /** 文字列から Paint をパース（簡易）。 */
+    private fun parsePaint(s: String?): dev.svgpro.core.model.Paint {
+        if (s == null || s == "none") return dev.svgpro.core.model.Paint.None
+        if (s.startsWith("url(#")) {
+            return dev.svgpro.core.model.Paint.Server(s.substringAfter("url(#").substringBefore(")"))
+        }
+        val c = dev.svgpro.core.model.Color.parse(s)
+        return if (c != null) dev.svgpro.core.model.Paint.Solid(c) else dev.svgpro.core.model.Paint.Solid(0xFF000000.toInt())
+    }
+
     // キャンバスビュー回転（度、正=画面上で時計回り）。editデータの座標は不変。
     var canvasRotation by mutableStateOf(0.0)
 
@@ -684,6 +779,7 @@ class Editor {
         guides.addAll(Guide.Codec.decode(doc.root.attr(Guide.ATTR)))
         doc.restoreArtboards()
         restoreComments()
+        restoreStylePresets()
         currentArtboardIndex = 0
         keyObject = null
         lastTransformOp = null

@@ -79,6 +79,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showMacroRecorder by remember { mutableStateOf(false) }
     var showComments by remember { mutableStateOf(false) }
     var showNavigator by remember { mutableStateOf(false) }
+    var showStylePreset by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -228,6 +229,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onMacroRecorder = { showMacroRecorder = true },
                 onComments = { showComments = true },
                 onNavigator = { showPanel = if (showPanel == "navigator") null else "navigator" },
+                onStylePreset = { showStylePreset = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -409,6 +411,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             CommentDialog(editor = editor, onDismiss = { showComments = false })
         }
 
+        if (showStylePreset) {
+            StylePresetDialog(editor = editor, onDismiss = { showStylePreset = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -561,6 +567,7 @@ private fun TopBar(
     onMacroRecorder: () -> Unit,
     onComments: () -> Unit,
     onNavigator: () -> Unit,
+    onStylePreset: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -686,6 +693,11 @@ private fun TopBar(
                         text = { Text("ナビゲーター") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onNavigator() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("スタイルプリセット…") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onStylePreset() },
                     )
                     DropdownMenuItem(
                         text = { Text("マクロ記録…") },

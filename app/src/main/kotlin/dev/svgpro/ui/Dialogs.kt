@@ -1402,6 +1402,68 @@ fun CommentDialog(editor: Editor, onDismiss: () -> Unit) {
     )
 }
 
+/** スタイルプリセット管理ダイアログ（カテゴリ6/17）。 */
+@Composable
+fun StylePresetDialog(editor: Editor, onDismiss: () -> Unit) {
+    var presetName by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("スタイルプリセット") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("プリセット名", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(64.dp))
+                    OutlinedTextField(
+                        value = presetName,
+                        onValueChange = { presetName = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = {
+                        if (presetName.isNotBlank()) {
+                            editor.saveStylePreset(presetName)
+                            presetName = ""
+                        }
+                    }) {
+                        Text("現在のスタイルを保存", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Divider()
+                Text("保存済みプリセット", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                if (editor.stylePresets.isEmpty()) {
+                    Text("プリセットはありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    editor.stylePresets.withIndex().forEach { (i, preset) ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Column {
+                                Text(preset.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text("塗り: ${when (preset.fill) { is dev.svgpro.core.model.Paint.None -> "なし"; is dev.svgpro.core.model.Paint.Solid -> dev.svgpro.core.model.Color.toHex(preset.fill.argb); is dev.svgpro.core.model.Paint.Server -> "グラデ" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { editor.applyStylePreset(i) }) {
+                                Text("適用", style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { editor.deleteStylePreset(i) }) {
+                                Text("削除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Divider()
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+    )
+}
+
 /** RGB(ARGB) → CMYK（各値 0.0〜1.0）。 */
 private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
     val r = ((argb shr 16) and 0xFF) / 255.0
