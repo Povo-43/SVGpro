@@ -80,6 +80,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showComments by remember { mutableStateOf(false) }
     var showNavigator by remember { mutableStateOf(false) }
     var showStylePreset by remember { mutableStateOf(false) }
+    var showBrushPreset by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -230,6 +231,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onComments = { showComments = true },
                 onNavigator = { showPanel = if (showPanel == "navigator") null else "navigator" },
                 onStylePreset = { showStylePreset = true },
+                onBrushPreset = { showBrushPreset = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -415,6 +417,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             StylePresetDialog(editor = editor, onDismiss = { showStylePreset = false })
         }
 
+        if (showBrushPreset) {
+            BrushPresetDialog(editor = editor, onDismiss = { showBrushPreset = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -568,6 +574,7 @@ private fun TopBar(
     onComments: () -> Unit,
     onNavigator: () -> Unit,
     onStylePreset: () -> Unit,
+    onBrushPreset: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -698,6 +705,11 @@ private fun TopBar(
                         text = { Text("スタイルプリセット…") },
                         leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onStylePreset() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ブラシプリセット…") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onBrushPreset() },
                     )
                     DropdownMenuItem(
                         text = { Text("マクロ記録…") },

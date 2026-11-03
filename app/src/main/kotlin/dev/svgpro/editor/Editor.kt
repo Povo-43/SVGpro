@@ -780,6 +780,7 @@ class Editor {
         doc.restoreArtboards()
         restoreComments()
         restoreStylePresets()
+        restoreBrushPresets()
         currentArtboardIndex = 0
         keyObject = null
         lastTransformOp = null
@@ -2632,6 +2633,105 @@ class Editor {
         notifyChanged()
         notifySelection()
     }
+
+    // ―――― ブラシプリセット（カテゴリ17） ――――
+
+    /** ブラシプリセット（ストローク設定の保存済みセット）。 */
+    data class BrushPreset(
+        val name: String,
+        val strokeWidth: Double,
+        val strokeCap: String,   // butt / round / square
+        val strokeJoin: String,  // miter / round / bevel
+        val dashArray: List<Double>?, // null = 実線
+        val strokeColor: Int,    // ARGB
+    )
+
+    /** ブラシプリセット一覧。 */
+    val brushPresets = mutableListOf<BrushPreset>()
+
+    /** 現在のストローク設定をブラシプリセットとして保存する。 */
+    fun saveBrushPreset(name: String) {
+        brushPresets.removeAll { it.name == name }
+        val firstSel = selection.firstOrNull()
+        brushPresets.add(BrushPreset(
+            name,
+            editor.curStrokeWidth,
+            firstSel?.let { StyleUtil.getProperty(it, "stroke-linecap") } ?: "butt",
+            firstSel?.let { StyleUtil.getProperty(it, "stroke-linejoin") } ?: "miter",
+            firstSel?.let { dashArrayOf(it) } ?: null,
+            (editor.curStroke as? dev.svgpro.core.model.Paint.Solid)?.argb ?: 0xFF000000.toInt(),
+        ))
+        saveBrushPresets()
+        notifyChanged()
+    }
+
+    /** ブラシプリセットを現在のストローク設定に適用する。 */
+    fun applyBrushPreset(index: Int) {
+        if (index !in brushPresets.indices) return
+        val p = brushPresets[index]
+        editor.curStrokeWidth = p.strokeWidth
+        editor.curStroke = dev.svgpro.core.model.Paint.Solid(p.strokeColor)
+        editor.onChanged()
+        // 適用はプロパティパネル側で個別に反映（キャップ/ジョイン/ダッシュ/色）
+    }
+
+    /** ブラシプリセットを削除する。 */
+    fun deleteBrushPreset(index: Int) {
+        if (index in brushPresets.indices) {
+            brushPresets.removeAt(index)
+            saveBrushPresets()
+            notifyChanged()
+        }
+    }
+
+    /** 要素のダッシュ配列を取得（null = 実線）。 */
+    private fun dashArrayOf(el: dev.svgpro.core.svg.Element): List<Double>? {
+        val v = StyleUtil.getProperty(el, "stroke-dasharray")
+        if (v == null || v.equals("none", true)) return null
+        return v.split(Regex("[,\\s]+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+    }
+
+    /** ブラシプリセットをドキュメント属性に保存（可逆）。 */
+    private fun saveBrushPresets() {
+        val arr = brushPresets.mapIndexed { i, p ->
+            mapOf(
+                "id" to "brush_$i",
+                "name" to p.name,
+                "strokeWidth" to dev.svgpro.core.util.Numbers.format(p.strokeWidth),
+                "strokeCap" to p.strokeCap,
+                "strokeJoin" to p.strokeJoin,
+                "dashArray" to (p.dashArray?.joinToString(",") { dev.svgpro.core.util.Numbers.format(it) } ?: "none"),
+                "strokeColor" to dev.svgpro.core.model.Color.css(p.strokeColor),
+            )
+        }
+        doc.root.setAttr("data-svgpro-brush-presets", dev.svgpro.core.util.Json.stringify(arr))
+    }
+
+    /** ブラシプリセットをドキュメント属性から復元。 */
+    fun restoreBrushPresets() {
+        brushPresets.clear()
+        val s = doc.root.attr("data-svgpro-brush-presets") ?: return
+        try {
+            val arr = dev.svgpro.core.util.Json.parse(s) ?: return
+            if (arr is List<*>) {
+                for (item in arr) {
+                    if (item is Map<*, *>) {
+                        val name = item["name"]?.toString() ?: "ブラシ"
+                        val strokeWidth = item["strokeWidth"]?.toString()?.toDoubleOrNull() ?: 2.0
+                        val strokeCap = item["strokeCap"]?.toString() ?: "butt"
+                        val strokeJoin = item["strokeJoin"]?.toString() ?: "miter"
+                        val dashStr = item["dashArray"]?.toString() ?: "none"
+                        val dashArray = if (dashStr.equals("none", true)) null else dashStr.split(",").filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+                        val strokeColor = dev.svgpro.core.model.Color.parse(item["strokeColor"]?.toString()) ?: 0xFF000000.toInt()
+                        brushPresets.add(BrushPreset(name, strokeWidth, strokeCap, strokeJoin, dashArray, strokeColor))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 解析失敗時は空のまま
+        }
+    }
+
 }
 
 enum class GeometryOpKind { UNION, DIFFERENCE, INTERSECTION, XOR }
