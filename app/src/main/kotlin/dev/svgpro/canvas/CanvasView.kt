@@ -72,6 +72,11 @@ class CanvasView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 1f
     }
+    private val pixelGridPaint = Paint().apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(2f, 2f), 0f)
+    }
     private val selectionBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.5f
@@ -123,6 +128,7 @@ class CanvasView @JvmOverloads constructor(
         val c = if (dark) CanvasTheme.Dark else CanvasTheme.Light
         pageBorderPaint.color = c.pageBorder
         gridPaint.color = c.grid
+        pixelGridPaint.color = c.pixelGrid
         selectionBoxPaint.color = c.selection
         selectionFillPaint.color = c.selectionFill
         handlePaint.color = c.handle
@@ -455,6 +461,10 @@ class CanvasView @JvmOverloads constructor(
         if (editor.showGrid) {
             drawGrid(canvas, pageScreen)
         }
+        // ピクセルグリッド（1 user unit 間隔。十分拡大時のみ表示）
+        if (editor.showPixelGrid) {
+            drawPixelGrid(canvas)
+        }
 
         // ページ枠
         canvas.drawRect(pageScreen, pageBorderPaint)
@@ -622,6 +632,31 @@ class CanvasView @JvmOverloads constructor(
             y += gridSize
         }
         canvas.drawPath(path, gridPaint)
+    }
+
+    /** ピクセルグリッド（1 user unit 間隔）。十分拡大時のみ描画する。 */
+    private fun drawPixelGrid(canvas: Canvas) {
+        val zoom = editor.zoom
+        if (zoom < 1.0) return
+        val vb = editor.doc.viewBox
+        val path = Path()
+        var x = kotlin.math.ceil(vb.minX)
+        val maxX = vb.minX + vb.width
+        while (x <= maxX) {
+            val sx = editor.userToScreen(Vec(x, vb.minY)).x
+            path.moveTo(sx.toFloat(), 0f)
+            path.lineTo(sx.toFloat(), height.toFloat())
+            x += 1.0
+        }
+        var y = kotlin.math.ceil(vb.minY)
+        val maxY = vb.minY + vb.height
+        while (y <= maxY) {
+            val sy = editor.userToScreen(Vec(vb.minX, y)).y
+            path.moveTo(0f, sy.toFloat())
+            path.lineTo(width.toFloat(), sy.toFloat())
+            y += 1.0
+        }
+        canvas.drawPath(path, pixelGridPaint)
     }
 
     private fun drawSelection(canvas: Canvas) {

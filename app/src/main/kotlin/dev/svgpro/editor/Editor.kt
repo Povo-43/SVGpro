@@ -384,6 +384,7 @@ class Editor {
     /** グリッド間隔（user単位）。UIから変更可能。ルーラー目盛りと連動する。 */
     var gridSize by mutableStateOf(10.0)
     var showGrid by mutableStateOf(false)
+    var showPixelGrid by mutableStateOf(false)
     var showRulers by mutableStateOf(false)
     var snapToGrid by mutableStateOf(false)
     var snapToObject = true

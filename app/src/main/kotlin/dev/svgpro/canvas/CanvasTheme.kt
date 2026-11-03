@@ -10,6 +10,7 @@ object CanvasTheme {
         val canvasBg: Int,        // ページ外の余白
         val pageBorder: Int,      // ページ枠
         val grid: Int,            // グリッド線
+        val pixelGrid: Int,       // ピクセルグリッド線（1 user unit 間隔）
         val selection: Int,       // 選択枠
         val selectionFill: Int,   // 選択枠の塗り
         val handle: Int,          // 変形ハンドル
@@ -37,6 +38,7 @@ object CanvasTheme {
         canvasBg = 0xFF1B1B1B.toInt(),
         pageBorder = 0xFF3F3F3F.toInt(),
         grid = 0x2E9E9E9E,
+        pixelGrid = 0x4DE0E0E0,
         selection = 0xFFE8590C.toInt(),      // ブランド #B53202 の明トーン（暗地で視認可能）
         selectionFill = 0x1AE8590C,
         handle = 0xFFF2F2F2.toInt(),
@@ -64,6 +66,7 @@ object CanvasTheme {
         canvasBg = 0xFFE2E2E2.toInt(),
         pageBorder = 0xFFABABAB.toInt(),
         grid = 0x38808080,
+        pixelGrid = 0x50B0B0B0,
         selection = 0xFFB53202.toInt(),      // 指定のブランドカラー
         selectionFill = 0x1AB53202,
         handle = 0xFFFFFFFF.toInt(),
