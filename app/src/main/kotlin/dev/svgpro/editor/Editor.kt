@@ -402,6 +402,20 @@ class Editor {
         notifyChanged()
     }
 
+    // ―――― 閲覧専用モード（カテゴリ17） ――――
+
+    /** 閲覧専用モード。true の場合、編集操作（変形・スタイル変更・削除等）を無効化する。 */
+    var viewOnlyMode = false
+        private set
+
+    fun setViewOnlyMode(enabled: Boolean) {
+        viewOnlyMode = enabled
+        notifyChanged()
+    }
+
+    /** 編集が許可されるか。閲覧専用モード時は false。 */
+    fun isEditable(): Boolean = !viewOnlyMode
+
     // キャンバスビュー回転（度、正=画面上で時計回り）。editデータの座標は不変。
     var canvasRotation by mutableStateOf(0.0)
 

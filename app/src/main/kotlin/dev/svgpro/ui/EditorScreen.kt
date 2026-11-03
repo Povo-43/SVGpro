@@ -672,6 +672,11 @@ private fun TopBar(
                         onClick = { onMenuDismiss(); onMacroRecorder() },
                     )
                     DropdownMenuItem(
+                        text = { if (editor.isEditable()) "閲覧専用モードにする" else "編集モードにする" },
+                        leadingIcon = { Icon(AppIcons.LockIcon, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); editor.setViewOnlyMode(!editor.isEditable()) },
+                    )
+                    DropdownMenuItem(
                         text = { Text("コマンドパレット…") },
                         leadingIcon = { Icon(AppIcons.Search, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onCommandPalette() },
