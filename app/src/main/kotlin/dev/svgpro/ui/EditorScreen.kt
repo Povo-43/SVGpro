@@ -314,13 +314,18 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             ExportPngDialog(
                 editor = editor,
                 onDismiss = { showExportPng = false },
-            ) { size, transparent, selectionOnly ->
+            ) { size, transparent, selectionOnly, format ->
                 if (uri != null) {
                     try {
                         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver
                         val bmp = editor.renderToBitmap(size, transparent, selectionOnly)
+                        val compressFormat = when (format) {
+                            ExportFormat.JPEG -> android.graphics.Bitmap.CompressFormat.JPEG
+                            ExportFormat.WEBP -> android.graphics.Bitmap.CompressFormat.WEBP
+                            else -> android.graphics.Bitmap.CompressFormat.PNG
+                        }
                         resolver?.openOutputStream(uri, "wt")?.use { out ->
-                            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                            bmp.compress(compressFormat, 95, out)
                         }
                         bmp.recycle()
                     } catch (e: Exception) {
@@ -612,6 +617,7 @@ private val toolGroups: List<List<Pair<ToolType, ImageVector>>> = listOf(
         ToolType.STAR to AppIcons.Star,
         ToolType.ARC to AppIcons.Arc,
         ToolType.SECTOR to AppIcons.Sector,
+        ToolType.SPIRAL to AppIcons.Spiral,
     ),
     listOf(ToolType.TEXT to AppIcons.TextTool),
     listOf(
@@ -635,6 +641,7 @@ private fun toolLabel(t: ToolType): String = when (t) {
     ToolType.STAR -> "スター"
     ToolType.ARC -> "円弧"
     ToolType.SECTOR -> "扇形"
+    ToolType.SPIRAL -> "螺旋"
     ToolType.TEXT -> "テキスト"
     ToolType.GRADIENT -> "グラデーション"
     ToolType.EYEDROPPER -> "スポイト"

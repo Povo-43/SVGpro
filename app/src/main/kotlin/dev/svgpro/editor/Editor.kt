@@ -37,7 +37,7 @@ import kotlin.math.sin
 enum class ToolType {
     SELECT, NODE, PEN, FREEHAND,
     RECT, RRECT, ELLIPSE, LINE, POLYGON, STAR, POLYLINE,
-    ARC, SECTOR,
+    ARC, SECTOR, SPIRAL,
     TEXT, HAND, EYEDROPPER, GRADIENT,
 }
 
@@ -1458,6 +1458,28 @@ class Editor {
                 val pd = if (kind == ToolType.ARC) arcPath(center, r, 0.0, sweepDeg)
                 else sectorPath(center, r, 0.0, sweepDeg)
                 Element("path").apply { setAttr("d", pd.write()) }
+            }
+            ToolType.SPIRAL -> {
+                val center = startUser
+                val r = hypot(endUser.x - startUser.x, endUser.y - startUser.y)
+                if (r < 1.0) return null
+                val turns = 3.0 // 巻き数
+                val points = 64 * turns.toInt()
+                val segs = ArrayList<Seg>()
+                var first = true
+                for (i in 0..points) {
+                    val t = i / points.toDouble()
+                    val angle = t * 2.0 * Math.PI * turns
+                    val rr = r * t
+                    val p = Vec(center.x + rr * kotlin.math.cos(angle), center.y + rr * kotlin.math.sin(angle))
+                    if (first) {
+                        segs.add(Seg.Move(p.x, p.y))
+                        first = false
+                    } else {
+                        segs.add(Seg.Line(p.x, p.y))
+                    }
+                }
+                Element("path").apply { setAttr("d", PathData(segs).write()) }
             }
             else -> null
         }

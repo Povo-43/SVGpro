@@ -318,10 +318,13 @@ fun ReplaceColorDialog(editor: dev.svgpro.editor.Editor, onDismiss: () -> Unit) 
  * PNG書き出しダイアログ（サイズ・透過・選択範囲のみ）。
  */
 @Composable
+internal enum class ExportFormat { PNG, JPEG, WEBP }
+
+/** 画像書き出しダイアログ（PNG / JPEG / WebP）。 */
 fun ExportPngDialog(
     editor: dev.svgpro.editor.Editor,
     onDismiss: () -> Unit,
-    onExport: (Pair<Int, Int>, Boolean, Boolean) -> Unit,
+    onExport: (Pair<Int, Int>, Boolean, Boolean, ExportFormat) -> Unit,
 ) {
     val b = editor.trace.boundsOf(editor.selection)
     val vb = editor.doc.viewBox
@@ -330,18 +333,39 @@ fun ExportPngDialog(
     var hText by remember { mutableStateOf("${(srcBounds.height * 2).toInt().coerceIn(16, 8192)}") }
     var transparent by remember { mutableStateOf(true) }
     var selectionOnly by remember { mutableStateOf(editor.selection.isNotEmpty()) }
+    var format by remember { mutableStateOf(ExportFormat.PNG) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("PNG書き出し") },
+        title = { Text("画像書き出し") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = wText, onValueChange = { wText = it }, label = { Text("幅px") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = hText, onValueChange = { hText = it }, label = { Text("高さpx") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    listOf(
+                        ExportFormat.PNG to "PNG",
+                        ExportFormat.JPEG to "JPEG",
+                        ExportFormat.WEBP to "WebP",
+                    ).forEach { (f, label) ->
+                        val selected = format == f
+                        AssistChip(
+                            onClick = { format = f },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                            colors = if (selected) {
+                                AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                            } else {
+                                AssistChipDefaults.assistChipColors()
+                            },
+                        )
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(transparent, onCheckedChange = { transparent = it })
-                    Text("透過背景", style = MaterialTheme.typography.bodySmall)
+                    val jpeg = format == ExportFormat.JPEG
+                    val transEnabled = !jpeg
+                    Checkbox(transparent && transEnabled, onCheckedChange = { if (transEnabled) transparent = it })
+                    Text("透過背景（JPEGは無効）", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.width(16.dp))
                     Checkbox(selectionOnly, onCheckedChange = { selectionOnly = it })
                     Text("選択のみ", style = MaterialTheme.typography.bodySmall)
@@ -353,7 +377,7 @@ fun ExportPngDialog(
             TextButton(onClick = {
                 val w = dev.svgpro.core.util.Numbers.parse(wText)?.toInt()?.coerceIn(16, 8192) ?: 1024
                 val h = dev.svgpro.core.util.Numbers.parse(hText)?.toInt()?.coerceIn(16, 8192) ?: 1024
-                onExport(w to h, transparent, selectionOnly)
+                onExport(w to h, transparent && format != ExportFormat.JPEG, selectionOnly, format)
             }) { Text("書き出し") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
