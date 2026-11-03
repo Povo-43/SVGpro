@@ -149,7 +149,7 @@ class SvgRenderer {
                 antiAlias = true
             }
             val (shadowColor, shadowBlur, shadowDx, shadowDy) = if (dropShadow != null) {
-                dropShadow
+                dropShadow!!.let { (it.d, it.c, it.a, it.b) }
             } else {
                 glow!!.let { (it.second, it.first, 0.0, 0.0) }
             }

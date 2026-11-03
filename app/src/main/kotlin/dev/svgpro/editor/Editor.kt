@@ -2111,6 +2111,23 @@ class Editor {
         }
         return result
     }
+
+    // ―――― ドキュメントスナップショット（共有の基盤） ――――
+
+    /** 現在のドキュメント状態を共有可能なJSONスナップショットとして出力する。
+     * 実質的な共同編集にはシグナリングサーバ/OT/CRDTが必要なため、
+     * ここではドキュメント全体のシリアライズ（スナップショット）を提供するにとどめる。
+     */
+    fun documentSnapshot(): String {
+        val map = linkedMapOf<String, Any?>()
+        map["svg"] = doc.serialize()
+        map["artboards"] = doc.artboards.mapIndexed { i, a ->
+            mapOf("id" to "artboard_$i", "name" to a.name, "x" to a.x, "y" to a.y, "w" to a.w, "h" to a.h)
+        }
+        map["currentArtboardIndex"] = currentArtboardIndex
+        map["guides"] = doc.root.attr(Guide.ATTR)
+        return dev.svgpro.core.util.Json.stringify(map)
+    }
 }
 
 enum class GeometryOpKind { UNION, DIFFERENCE, INTERSECTION, XOR }
