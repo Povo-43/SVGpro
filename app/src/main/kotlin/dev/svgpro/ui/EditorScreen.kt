@@ -806,6 +806,9 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
                 RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly, refresh) {
                     editor.penOnly = !editor.penOnly; editor.onChanged()
                 }
+                RailToggle(AppIcons.Magnet, "距離スナップ", editor.snapToDistance, refresh) {
+                    editor.snapToDistance = !editor.snapToDistance; editor.onChanged()
+                }
             }
         } else {
             Row(
@@ -825,6 +828,9 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
                 }
                 RailToggle(AppIcons.PenOnly, "ペン優先（指を無視）", editor.penOnly, refresh) {
                     editor.penOnly = !editor.penOnly; editor.onChanged()
+                }
+                RailToggle(AppIcons.Magnet, "距離スナップ", editor.snapToDistance, refresh) {
+                    editor.snapToDistance = !editor.snapToDistance; editor.onChanged()
                 }
                 RailToggle(AppIcons.Grid, "ピクセルグリッド", editor.showPixelGrid, refresh) {
                     editor.showPixelGrid = !editor.showPixelGrid; editor.onChanged()

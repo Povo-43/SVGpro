@@ -194,6 +194,11 @@ class ToolController(val editor: Editor) {
                 var d = delta
                 // スナップ（選択bbox基準）。Shift押下でグリッドへ強制スナップ（格子に合わせやすく）
                 d = applySnapForMove(d, forceGrid = isShift(ev))
+                // 距離スナップ：移動量を固定間隔で量子化
+                if (editor.snapToDistance) {
+                    val step = editor.snapDistance.coerceAtLeast(1e-6)
+                    d = Vec(kotlin.math.round(d.x / step) * step, kotlin.math.round(d.y / step) * step)
+                }
                 // スマートガイド（他オブジェクトとの整列補助）
                 editor.smartGuideV.clear()
                 editor.smartGuideH.clear()

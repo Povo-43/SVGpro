@@ -500,6 +500,11 @@ class Editor {
     /** ガイド線へスナップ */
     var snapToGuides = true
 
+    /** 距離スナップ（移動を固定間隔でスナップ） */
+    var snapToDistance = false
+    /** 距離スナップの間隔（user単位） */
+    var snapDistance = 10.0
+
     // ―――― ガイド ――――
     val guides = ArrayList<Guide>()
 
