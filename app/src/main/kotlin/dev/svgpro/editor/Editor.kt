@@ -445,6 +445,49 @@ class Editor {
         RulerUnit.PT -> "pt"
     }
 
+    // ―――― アートボード（複数ページ管理） ――――
+
+    /** 現在選択中のアートボードインデックス。 */
+    var currentArtboardIndex by mutableStateOf(0)
+
+    /** 現在のアートボードを返す（未設定ならnull）。 */
+    fun currentArtboard(): dev.svgpro.core.model.SvgDocument.Artboard? =
+        doc.artboards.getOrNull(currentArtboardIndex.coerceIn(0, doc.artboards.size - 1))
+
+    /** アートボードを切り替え、viewBoxをその領域にフィットさせる。 */
+    fun setCurrentArtboard(index: Int) {
+        if (index !in doc.artboards.indices) return
+        currentArtboardIndex = index
+        val vb = doc.artboardViewBox(index) ?: return
+        fitRect(vb)
+        onChanged()
+    }
+
+    /** アートボードを追加し、viewBoxを新しい領域にフィットさせる。 */
+    fun addArtboard(name: String, x: Double, y: Double, w: Double, h: Double) {
+        val idx = doc.addArtboard(name, x, y, w, h)
+        currentArtboardIndex = idx
+        val vb = doc.artboardViewBox(idx) ?: return
+        fitRect(vb)
+        onChanged()
+    }
+
+    /** 現在のアートボードを削除（最後の1枚は残す）。 */
+    fun removeCurrentArtboard(): Boolean {
+        if (!doc.removeArtboard(currentArtboardIndex)) return false
+        if (currentArtboardIndex >= doc.artboards.size) currentArtboardIndex = doc.artboards.lastIndex
+        val vb = doc.artboardViewBox(currentArtboardIndex) ?: return true
+        fitRect(vb)
+        onChanged()
+        return true
+    }
+
+    /** 現在のアートボード名を変更。 */
+    fun renameCurrentArtboard(name: String) {
+        doc.renameArtboard(currentArtboardIndex, name)
+        onChanged()
+    }
+
     // ―――― スナップ詳細設定 ――――
     /** スナップ許容距離（画面px基準。拡大率でuser距離へ変換） */
     var snapTolerancePx = 8.0
@@ -549,6 +592,8 @@ class Editor {
         if (name != null) documentName = name
         guides.clear()
         guides.addAll(Guide.Codec.decode(doc.root.attr(Guide.ATTR)))
+        doc.restoreArtboards()
+        currentArtboardIndex = 0
         keyObject = null
         lastTransformOp = null
         invalidateTrace()

@@ -613,6 +613,40 @@ fun DocumentSettingsDialog(
                         }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
                     }
                 }
+                // アートボード管理
+                var abNameText by remember { mutableStateOf("") }
+                Text("アートボード", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                editor.doc.artboards.withIndex().forEach { (i, a) ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("${a.name} (${dev.svgpro.core.util.Numbers.format(a.w)}×${dev.svgpro.core.util.Numbers.format(a.h)})", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { editor.setCurrentArtboard(i) }) { Text("切替", style = MaterialTheme.typography.labelSmall) }
+                        if (editor.doc.artboards.size > 1) {
+                            TextButton(onClick = { editor.removeCurrentArtboard() }) { Text("削除", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(
+                        value = abNameText,
+                        onValueChange = { abNameText = it },
+                        label = { Text("名前") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
+                    TextButton(onClick = {
+                        val vb = editor.doc.viewBox
+                        editor.addArtboard(abNameText.takeIf { it.isNotBlank() } ?: "Page ${editor.doc.artboards.size + 1}", vb.minX, vb.minY, vb.width, vb.height)
+                        abNameText = ""
+                    }) { Text("追加", style = MaterialTheme.typography.labelSmall) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(onClick = {
+                        val cur = editor.currentArtboard() ?: return@TextButton
+                        editor.renameCurrentArtboard(abNameText.takeIf { it.isNotBlank() } ?: cur.name)
+                        abNameText = ""
+                    }) { Text("名前変更", style = MaterialTheme.typography.labelSmall) }
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(smartOn, onCheckedChange = { smartOn = it; editor.smartGuides = it })

@@ -1075,6 +1075,21 @@ private fun StatusBar(editor: Editor, refresh: Int) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // アートボード切り替え（1枚以上の時に表示）
+            val abCount = editor.doc.artboards.size
+            if (abCount > 1) {
+                var abIdx by remember { mutableStateOf(editor.currentArtboardIndex.coerceAtLeast(0).coerceAtMost(abCount - 1)) }
+                LaunchedEffect(editor.currentArtboardIndex) { abIdx = editor.currentArtboardIndex }
+                TextButton(
+                    onClick = {
+                        val next = (abIdx + 1) % abCount
+                        editor.setCurrentArtboard(next)
+                    },
+                ) {
+                    val a = editor.doc.artboards.getOrNull(abIdx) ?: return@TextButton
+                    Text("${a.name}", style = MaterialTheme.typography.labelSmall)
+                }
+            }
             val selCount = editor.selection.size
             Text(
                 if (selCount == 0) toolLabel(editor.tool) else "選択: $selCount",

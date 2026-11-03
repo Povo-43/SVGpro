@@ -9,12 +9,18 @@ import dev.svgpro.core.svg.Element
  */
 class SvgDocument(val root: Element) {
 
+    /** アートボード（名前＋矩形領域）。data-svgpro-artboards 属性にJSONで可逆保持する。 */
+    data class Artboard(val name: String, val x: Double, val y: Double, val w: Double, val h: Double) {
+        val centerX get() = x + w / 2
+        val centerY get() = y + h / 2
+    }
+
     companion object {
         val SHAPE_TAGS = setOf("path", "rect", "circle", "ellipse", "line", "polyline", "polygon")
         const val DEFAULT_W = 100.0
         const val DEFAULT_H = 100.0
 
-        /** 新規ドキュメントを作る */
+        /** 新規ドキュメントを作る（1枚のアートボードを自動作成） */
         fun create(width: Double = 512.0, height: Double = 512.0): SvgDocument {
             val root = Element("svg")
             root.setAttr("xmlns", "http://www.w3.org/2000/svg")
@@ -25,11 +31,92 @@ class SvgDocument(val root: Element) {
             root.setAttr("version", "1.1")
             val defs = Element("defs")
             root.children.add(defs)
-            return SvgDocument(root)
+            return SvgDocument(root).also {
+                it.artboards.add(Artboard("Page 1", 0.0, 0.0, width, height))
+            }
         }
 
         private fun fmt(v: Double) = dev.svgpro.core.util.Numbers.format(v)
     }
+
+    // ―――― アートボード（複数ページ管理） ――――
+
+    val artboards = mutableListOf<Artboard>()
+
+    /** ルート属性からアートボード一覧を復元（ドキュメント読み込き時に呼ぶ） */
+    fun restoreArtboards() {
+        artboards.clear()
+        val s = root.attr("data-svgpro-artboards") ?: return
+        try {
+            val arr = dev.svgpro.core.util.Json.parse(s) ?: return
+            if (arr is List<*>) {
+                for (item in arr) {
+                    if (item is Map<*, *>) {
+                        val name = item["name"]?.toString() ?: "Page"
+                        val x = item["x"]?.toString()?.toDoubleOrNull() ?: 0.0
+                        val y = item["y"]?.toString()?.toDoubleOrNull() ?: 0.0
+                        val w = item["w"]?.toString()?.toDoubleOrNull() ?: 100.0
+                        val h = item["h"]?.toString()?.toDoubleOrNull() ?: 100.0
+                        artboards.add(Artboard(name, x, y, w, h))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 解析失敗時は空のまま
+        }
+        if (artboards.isEmpty()) {
+            // フォールバック: 現在のviewBoxを1枚のアートボードとする
+            val vb = viewBox
+            artboards.add(Artboard("Page 1", vb.minX, vb.minY, vb.width, vb.height))
+        }
+    }
+
+    /** アートボード一覧をルート属性へJSON保存 */
+    fun saveArtboards() {
+        val arr = artboards.mapIndexed { i, a ->
+            mapOf(
+                "id" to "artboard_$i",
+                "name" to a.name,
+                "x" to dev.svgpro.core.util.Numbers.format(a.x),
+                "y" to dev.svgpro.core.util.Numbers.format(a.y),
+                "w" to dev.svgpro.core.util.Numbers.format(a.w),
+                "h" to dev.svgpro.core.util.Numbers.format(a.h),
+            )
+        }
+        root.setAttr("data-svgpro-artboards", dev.svgpro.core.util.Json.stringify(arr))
+    }
+
+    /** アートボードを追加 */
+    fun addArtboard(name: String, x: Double, y: Double, w: Double, h: Double): Int {
+        artboards.add(Artboard(name, x, y, w, h))
+        saveArtboards()
+        return artboards.lastIndex
+    }
+
+    /** アートボードを削除（最後の1枚は残す） */
+    fun removeArtboard(index: Int): Boolean {
+        if (artboards.size <= 1 || index !in artboards.indices) return false
+        artboards.removeAt(index)
+        saveArtboards()
+        return true
+    }
+
+    /** アートボード名を変更 */
+    fun renameArtboard(index: Int, name: String): Boolean {
+        if (index !in artboards.indices || name.isBlank()) return false
+        artboards[index] = artboards[index].copy(name = name)
+        saveArtboards()
+        return true
+    }
+
+    /** 指定インデックスのアートボード領域をviewBoxに適用するためのViewBoxを返す */
+    fun artboardViewBox(index: Int): ViewBox? {
+        if (index !in artboards.indices) return null
+        val a = artboards[index]
+        return ViewBox(a.x, a.y, a.w, a.h)
+    }
+
+    // ―――― ビューポート ――――
 
     // ―――― ビューポート ――――
 
