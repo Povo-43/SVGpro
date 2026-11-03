@@ -86,6 +86,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showBrushPreset by remember { mutableStateOf(false) }
     var showFontManager by remember { mutableStateOf(false) }
     var showFontToPath by remember { mutableStateOf(false) }
+    var animationMode by remember { mutableStateOf(false) }
     var selectedFontFamily by remember { mutableStateOf<String?>(null) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
@@ -177,6 +178,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     val onLoadSwatches = { swatchLoadLauncher.launch(arrayOf("application/json", "*/*")) }
 
     fun doSave() {
+        // アニメーション定義をドキュメントに書き戻す（保存前）
+        editor.saveAnimationsToDocument()
         val uri = vm.currentUri
         if (uri != null) {
             saveToUri(vm, uri, editor)
@@ -216,6 +219,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             TopBar(
                 editor = editor,
                 refresh = refresh,
+                animationMode = animationMode,
+                onAnimationModeToggle = { editor.setAnimationMode(!animationMode) },
                 showMenu = showMenu,
                 onMenuDismiss = { showMenu = false },
                 onMenuOpen = { showMenu = true },
@@ -348,6 +353,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                         onLoadSwatches = onLoadSwatches,
                         customFontFamilies = vm.loadedFontFamilies,
                         onShowFontManager = { showFontManager = true },
+                        animationMode = animationMode,
                     )
                 }
             }
@@ -369,6 +375,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     onLoadSwatches = onLoadSwatches,
                     customFontFamilies = vm.loadedFontFamilies,
                     onShowFontManager = { showFontManager = true },
+                    animationMode = animationMode,
                 )
             }
 
@@ -640,6 +647,8 @@ private fun nudge(editor: Editor, dx: Double, dy: Double) {
 private fun TopBar(
     editor: Editor,
     refresh: Int,
+    animationMode: Boolean,
+    onAnimationModeToggle: () -> Unit,
     showMenu: Boolean,
     onMenuOpen: () -> Unit,
     onMenuDismiss: () -> Unit,
@@ -827,6 +836,12 @@ private fun TopBar(
                         text = { if (editor.isEditable()) "閲覧専用モードにする" else "編集モードにする" },
                         leadingIcon = { Icon(AppIcons.LockIcon, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); editor.setViewOnlyMode(!editor.isEditable()) },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { if (animationMode) "通常モードに戻る" else "アニメーションモードにする" },
+                        leadingIcon = { Icon(AppIcons.StopIcon, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onAnimationModeToggle() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },
@@ -1289,6 +1304,7 @@ private fun SidePanel(
     onLoadSwatches: () -> Unit,
     customFontFamilies: List<String>,
     onShowFontManager: () -> Unit,
+    animationMode: Boolean = false,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1300,7 +1316,7 @@ private fun SidePanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    panelTitle(panel),
+                    if (animationMode) "アニメーション" else panelTitle(panel),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -1311,18 +1327,26 @@ private fun SidePanel(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Box(Modifier.weight(1f)) {
-                when (panel) {
-                    "layers" -> LayersPanel(editor, refresh)
-                    "history" -> HistoryPanel(editor, refresh)
-                    "navigator" -> NavigatorPanel(editor, refresh)
-                    else -> PropertiesPanel(
-                        editor,
-                        refresh,
-                        onSaveSwatches,
-                        onLoadSwatches,
-                        customFontFamilies = customFontFamilies,
-                        onShowFontManager = onShowFontManager,
+                if (animationMode) {
+                    AnimationPanel(
+                        editor = editor,
+                        refresh = refresh,
+                        onClose = { editor.setAnimationMode(false) },
                     )
+                } else {
+                    when (panel) {
+                        "layers" -> LayersPanel(editor, refresh)
+                        "history" -> HistoryPanel(editor, refresh)
+                        "navigator" -> NavigatorPanel(editor, refresh)
+                        else -> PropertiesPanel(
+                            editor,
+                            refresh,
+                            onSaveSwatches,
+                            onLoadSwatches,
+                            customFontFamilies = customFontFamilies,
+                            onShowFontManager = onShowFontManager,
+                        )
+                    }
                 }
             }
         }
@@ -1341,6 +1365,7 @@ private fun SheetPanel(
     onLoadSwatches: () -> Unit,
     customFontFamilies: List<String>,
     onShowFontManager: () -> Unit,
+    animationMode: Boolean = false,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1365,7 +1390,7 @@ private fun SheetPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    panelTitle(panel),
+                    if (animationMode) "アニメーション" else panelTitle(panel),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -1375,18 +1400,26 @@ private fun SheetPanel(
                 }
             }
             Box(Modifier.heightIn(max = maxHeight - 44.dp)) {
-                when (panel) {
-                    "layers" -> LayersPanel(editor, refresh)
-                    "history" -> HistoryPanel(editor, refresh)
-                    "navigator" -> NavigatorPanel(editor, refresh)
-                    else -> PropertiesPanel(
-                        editor,
-                        refresh,
-                        onSaveSwatches,
-                        onLoadSwatches,
-                        customFontFamilies = customFontFamilies,
-                        onShowFontManager = onShowFontManager,
+                if (animationMode) {
+                    AnimationPanel(
+                        editor = editor,
+                        refresh = refresh,
+                        onClose = { editor.setAnimationMode(false) },
                     )
+                } else {
+                    when (panel) {
+                        "layers" -> LayersPanel(editor, refresh)
+                        "history" -> HistoryPanel(editor, refresh)
+                        "navigator" -> NavigatorPanel(editor, refresh)
+                        else -> PropertiesPanel(
+                            editor,
+                            refresh,
+                            onSaveSwatches,
+                            onLoadSwatches,
+                            customFontFamilies = customFontFamilies,
+                            onShowFontManager = onShowFontManager,
+                        )
+                    }
                 }
             }
         }
@@ -1598,6 +1631,8 @@ fun openDocument(vm: EditorViewModel, uri: android.net.Uri) {
 
 fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor) {
     try {
+        // アニメーショントラックをドキュメント属性に保存してからシリアライズ
+        editor.saveKeyframesToDocument()
         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
         resolver.openOutputStream(uri, "wt")?.use { out ->
             val bytes = editor.doc.serialize().toByteArray(Charsets.UTF_8)

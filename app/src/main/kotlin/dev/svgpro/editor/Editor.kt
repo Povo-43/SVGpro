@@ -23,6 +23,25 @@ import dev.svgpro.core.path.NodeKind
 import dev.svgpro.core.path.PathData
 import dev.svgpro.core.path.Seg
 import dev.svgpro.core.path.SubpathNodes
+import dev.svgpro.core.animation.AnimationTrack
+import dev.svgpro.core.animation.BezierEase
+import dev.svgpro.core.animation.EaseType
+import dev.svgpro.core.animation.Keyframe
+import dev.svgpro.core.animation.KeyframeEngine
+import dev.svgpro.core.animation.Marker
+import dev.svgpro.core.animation.MotionPath
+import dev.svgpro.core.svg.Animation
+import dev.svgpro.core.svg.AnimationKind
+import dev.svgpro.core.svg.AnimationState
+import dev.svgpro.core.svg.AttributeType
+import dev.svgpro.core.svg.CalcMode
+import dev.svgpro.core.svg.FillMode
+import dev.svgpro.core.svg.activeEndSeconds
+import dev.svgpro.core.svg.animationsFromElement
+import dev.svgpro.core.svg.animationToElement
+import dev.svgpro.core.svg.computeTransform
+import dev.svgpro.core.svg.computeValue
+import dev.svgpro.core.svg.writeAnimationsToTree
 import dev.svgpro.core.svg.Element
 import dev.svgpro.core.svg.SvgLoader
 import dev.svgpro.core.svg.SvgOptimizer
@@ -417,6 +436,669 @@ class Editor {
     /** 編集が許可されるか。閲覧専用モード時は false。 */
     fun isEditable(): Boolean = !viewOnlyMode
 
+    // ―――― アニメーションモード（カテゴリ14: SVGアニメーション対応） ――――
+
+    /** アニメーション編集モード。trueの場合、UIはアニメーション専用パネルに切り替わる。 */
+    var animationMode = false
+        private set
+
+    fun setAnimationMode(enabled: Boolean) {
+        animationMode = enabled
+        if (enabled) {
+            loadAnimationsFromDocument()
+        }
+        notifyChanged()
+    }
+
+    /** アニメーション一覧（ドキュメントレベル） */
+    val animations = mutableListOf<Animation>()
+
+    /** アニメーション再生状態 */
+    var animationState by mutableStateOf(AnimationState())
+        private set
+
+    /** アニメーション再生中か */
+    val isAnimating: Boolean
+        get() = animationState.isPlaying
+
+    /** アニメーション再生/一時停止を切り替える */
+    fun toggleAnimation() {
+        if (animationState.isPlaying) {
+            animationState = animationState.copy(isPlaying = false)
+        } else {
+            animationState = animationState.copy(isPlaying = true, currentTime = animationState.currentTime)
+        }
+        notifyChanged()
+    }
+
+    /** アニメーションを停止する */
+    fun stopAnimation() {
+        animationState = AnimationState(animations = animations, currentTime = 0.0, isPlaying = false)
+        notifyChanged()
+    }
+
+    /** アニメーション進捗をシーク（0〜1） */
+    fun seekAnimation(progress: Double) {
+        val dur = animationState.duration.coerceAtLeast(0.001)
+        animationState = animationState.copy(
+            currentTime = progress * dur,
+            isPlaying = false,
+        )
+        applyAnimationAt(animationState.currentTime)
+        notifyChanged()
+    }
+
+    /** ドキュメントからアニメーション要素を読み込む */
+    fun loadAnimationsFromDocument() {
+        animations.clear()
+        animations.addAll(animationsFromElement(doc.root))
+        val dur = animations.map { activeEndSeconds(it) }.maxOrNull() ?: 0.0
+        animationState = AnimationState(
+            animations = animations.toList(),
+            currentTime = 0.0,
+            isPlaying = false,
+            duration = dur,
+        )
+        notifyChanged()
+    }
+
+    /** アニメーション定義をドキュメントに書き戻す（保存前） */
+    fun saveAnimationsToDocument() {
+        writeAnimationsToTree(animations, doc.root)
+        notifyChanged()
+    }
+
+    /** 選択要素に新しいアニメーションを追加する */
+    fun addAnimationToSelection(tag: String, attributeName: String?) {
+        val target = selection.firstOrNull() ?: return
+        val targetId = target.id ?: return
+        val kind = when (tag) {
+            "animate" -> AnimationKind.ANIMATE
+            "animateTransform" -> AnimationKind.ANIMATE_TRANSFORM
+            "animateMotion" -> AnimationKind.ANIMATE_MOTION
+            "set" -> AnimationKind.SET
+            else -> AnimationKind.ANIMATE
+        }
+        val anim = Animation(
+            kind = kind,
+            targetRef = targetId,
+            attributeName = attributeName ?: "",
+            dur = "1s",
+            fill = FillMode.REMOVE,
+            calcMode = CalcMode.LINEAR,
+            transformType = if (tag == "animateTransform") "translate" else null,
+        )
+        animations.add(anim)
+        saveAnimationsToDocument()
+        val dur = animations.map { activeEndSeconds(it) }.maxOrNull() ?: 0.0
+        animationState = animationState.copy(
+            animations = animations.toList(),
+            duration = dur,
+        )
+        notifyChanged()
+    }
+
+    /** アニメーションを削除する */
+    fun removeAnimation(id: String) {
+        animations.removeAll { it.id == id }
+        saveAnimationsToDocument()
+        val dur = animations.map { activeEndSeconds(it) }.maxOrNull() ?: 0.0
+        animationState = animationState.copy(
+            animations = animations.toList(),
+            duration = dur,
+        )
+        notifyChanged()
+    }
+
+    /** アニメーション属性を更新する */
+    fun updateAnimation(id: String, build: (Animation.Builder) -> Unit) {
+        val idx = animations.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        val old = animations[idx]
+        val builder = Animation.Builder(old)
+        build(builder)
+        val updated = builder.build()
+        animations[idx] = updated
+        saveAnimationsToDocument()
+        val dur = animations.map { activeEndSeconds(it) }.maxOrNull() ?: 0.0
+        animationState = animationState.copy(
+            animations = animations.toList(),
+            duration = dur,
+        )
+        notifyChanged()
+    }
+
+    /** 指定時刻におけるアニメーション値を適用（描画反映用） */
+    private fun applyAnimationAt(seconds: Double) {
+        for (anim in animations) {
+            val targetRef = anim.targetRef
+            val target = if (targetRef != null) doc.root.findById(targetRef) else null
+            if (target == null) continue
+            when (anim.kind) {
+                AnimationKind.ANIMATE_TRANSFORM -> {
+                    computeTransform(anim, seconds)?.let { (_, matrix) ->
+                        target.setAttr("transform", dev.svgpro.core.geom.Matrix.toSvgString(matrix))
+                    }
+                }
+                else -> {
+                    computeValue(anim, seconds)?.let { (phase, value) ->
+                        when (value) {
+                            is dev.svgpro.core.svg.AnimValue.Number ->
+                                target.setAttr(anim.attributeName, dev.svgpro.core.util.Numbers.format(value.v))
+                            is dev.svgpro.core.svg.AnimValue.Color ->
+                                target.setAttr(anim.attributeName, dev.svgpro.core.model.Color.css(value.argb))
+                            is dev.svgpro.core.svg.AnimValue.String -> {
+                                val strVal = (value as dev.svgpro.core.svg.AnimValue.String).s
+                                target.setAttr(anim.attributeName, strVal)
+                            }
+                            is dev.svgpro.core.svg.AnimValue.Transform ->
+                                target.setAttr("transform", dev.svgpro.core.geom.Matrix.toSvgString(value.matrix))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** アニメーション要素のビルダー（Animationのコピー補助） */
+    class Builder private constructor(
+        private var kind: AnimationKind,
+        private var targetRef: String?,
+        private var attributeName: String,
+        private var attributeType: AttributeType,
+        private var begin: String,
+        private var dur: String,
+        private var end: String?,
+        private var min: String?,
+        private var max: String?,
+        private var repeatCount: String?,
+        private var repeatDur: String?,
+        private var fill: FillMode,
+        private var calcMode: CalcMode,
+        private var from: String?,
+        private var to: String?,
+        private var by: String?,
+        private var values: String?,
+        private var keyTimes: String?,
+        private var keySplines: String?,
+        private var additive: String,
+        private var accumulate: String,
+        private var transformType: String?,
+        private var motionPath: String?,
+    ) {
+        constructor(old: Animation) : this(
+            old.kind, old.targetRef, old.attributeName, old.attributeType, old.begin, old.dur,
+            old.end, old.min, old.max, old.repeatCount, old.repeatDur, old.fill, old.calcMode,
+            old.from, old.to, old.by, old.values, old.keyTimes, old.keySplines,
+            old.additive, old.accumulate, old.transformType, old.motionPath,
+        )
+
+        fun kind(v: AnimationKind) = apply { kind = v }
+        fun targetRef(v: String?) = apply { targetRef = v }
+        fun attributeName(v: String) = apply { attributeName = v }
+        fun attributeType(v: AttributeType) = apply { attributeType = v }
+        fun begin(v: String) = apply { begin = v }
+        fun dur(v: String) = apply { dur = v }
+        fun end(v: String?) = apply { end = v }
+        fun fill(v: FillMode) = apply { fill = v }
+        fun calcMode(v: CalcMode) = apply { calcMode = v }
+        fun from(v: String?) = apply { from = v }
+        fun to(v: String?) = apply { to = v }
+        fun by(v: String?) = apply { by = v }
+        fun values(v: String?) = apply { values = v }
+        fun keyTimes(v: String?) = apply { keyTimes = v }
+        fun keySplines(v: String?) = apply { keySplines = v }
+        fun transformType(v: String?) = apply { transformType = v }
+
+        fun build() = Animation(
+            kind = kind, targetRef = targetRef, attributeName = attributeName,
+            attributeType = attributeType, begin = begin, dur = dur, end = end,
+            min = min, max = max, repeatCount = repeatCount, repeatDur = repeatDur,
+            fill = fill, calcMode = calcMode, from = from, to = to, by = by,
+            values = values, keyTimes = keyTimes, keySplines = keySplines,
+            additive = additive, accumulate = accumulate,
+            transformType = transformType, motionPath = motionPath,
+        )
+    }
+
+    // ―――― キーフレームアニメーション（カテゴリ14: SVGアニメーション対応） ――――
+
+    /** キーフレームアニメーション補間エンジン */
+    private val keyframeEngine = KeyframeEngine()
+
+    /** アニメーショントラック一覧（オブジェクト × 時刻 × 属性値） */
+    val animationTracks = mutableListOf<AnimationTrack>()
+
+    /** キーフレームアニメーション再生位置（ミリ秒） */
+    var keyframeTimeMs by mutableStateOf(0L)
+        private set
+
+    /** キーフレームアニメーション再生中か */
+    var isKeyframePlaying by mutableStateOf(false)
+        private set
+
+    /** キーフレームアニメーションのトータル時間（ミリ秒） */
+    var keyframeDurationMs by mutableStateOf(2000L)
+        private set
+
+    /** 一時的なアニメーションオーバーライド（描画時のみ要素属性を上書き、描画後に復元） */
+    private val animationBackup = mutableMapOf<Element, LinkedHashMap<String, String?>>()
+
+    /** キーフレームアニメーションを再生/一時停止 */
+    fun toggleKeyframeAnimation() {
+        isKeyframePlaying = !isKeyframePlaying
+        notifyChanged()
+    }
+
+    /** キーフレームアニメーションを停止し、最初に戻す */
+    fun stopKeyframeAnimation() {
+        isKeyframePlaying = false
+        keyframeTimeMs = 0
+        clearAnimationOverrides()
+        notifyChanged()
+    }
+
+    /** キーフレームアニメーションをシーク（ミリ秒） */
+    fun seekKeyframeAnimation(timeMs: Long) {
+        keyframeTimeMs = timeMs.coerceIn(0, keyframeDurationMs)
+        applyAnimationAt(keyframeTimeMs)
+        notifyChanged()
+    }
+
+    /** ドキュメントからキーフレームトラックを読み込む（data-svgpro-keyframes 属性） */
+    fun loadKeyframesFromDocument() {
+        animationTracks.clear()
+        val s = doc.root.attr("data-svgpro-keyframes") ?: return
+        try {
+            val arr = dev.svgpro.core.util.Json.parse(s) ?: return
+            if (arr is List<*>) {
+                for (item in arr) {
+                    if (item is Map<*, *>) {
+                        val id = item["id"]?.toString() ?: java.util.UUID.randomUUID().toString()
+                        val targetId = item["targetId"]?.toString() ?: ""
+                        val targetName = item["targetName"]?.toString() ?: ""
+                        val durationMs = item["durationMs"]?.toString()?.toLongOrNull() ?: 2000L
+                        val loop = (item["loop"]?.toString() ?: "false") == "true"
+                        val enabled = (item["enabled"]?.toString() ?: "true") == "true"
+                        var track = AnimationTrack(
+                            id = id,
+                            targetId = targetId,
+                            targetName = targetName,
+                            durationMs = durationMs,
+                            loop = loop,
+                            enabled = enabled,
+                            parentId = item["parentId"]?.toString()?.takeIf { it.isNotEmpty() },
+                            motionBlur = (item["motionBlur"]?.toString() ?: "false") == "true",
+                            shutterAngle = item["shutterAngle"]?.toString()?.toDoubleOrNull() ?: 180.0,
+                            timeRemap = item["timeRemap"]?.toString()?.toDoubleOrNull() ?: 1.0,
+                        )
+                        // モーションパス復元
+                        val mp = item["motionPath"]
+                        if (mp is Map<*, *>) {
+                            val pd = mp["pathData"]?.toString() ?: ""
+                            val md = mp["durationMs"]?.toString()?.toLongOrNull() ?: 2000L
+                            val mloop = (mp["loop"]?.toString() ?: "false") == "true"
+                            track = track.copy(motionPath = MotionPath(pathData = pd, durationMs = md, loop = mloop))
+                        }
+                        val kfs = item["keyframes"]
+                        if (kfs is List<*>) {
+                            for (kfItem in kfs) {
+                                if (kfItem is Map<*, *>) {
+                                    val kfTime = kfItem["timeMs"]?.toString()?.toLongOrNull() ?: 0L
+                                    val (easeType, bezier) = Keyframe.easeFromString(kfItem["easing"]?.toString())
+                                    val props = LinkedHashMap<String, String>()
+                                    val kfProps = kfItem["properties"]
+                                    if (kfProps is Map<*, *>) {
+                                        for ((k, v) in kfProps) {
+                                            props[k.toString()] = v.toString()
+                                        }
+                                    }
+                                    track.keyframes.add(Keyframe(timeMs = kfTime, properties = props, easeType = easeType, bezier = bezier))
+                                }
+                            }
+                        }
+                        // マーカー復元
+                        val mkrs = item["markers"]
+                        if (mkrs is List<*>) {
+                            for (mItem in mkrs) {
+                                if (mItem is Map<*, *>) {
+                                    val mTime = mItem["timeMs"]?.toString()?.toLongOrNull() ?: 0L
+                                    val mLabel = mItem["label"]?.toString() ?: ""
+                                    val mColor = mItem["color"]?.toString() ?: "#FF0000"
+                                    track.markers.add(Marker(timeMs = mTime, label = mLabel, color = mColor))
+                                }
+                            }
+                        }
+                        animationTracks.add(track)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 解析失敗時は空のまま
+        }
+        recomputeKeyframeDuration()
+        notifyChanged()
+    }
+
+    /** キーフレームトラックをドキュメント属性に保存（data-svgpro-keyframes） */
+    fun saveKeyframesToDocument() {
+        val arr = animationTracks.map { track ->
+            mapOf(
+                "id" to track.id,
+                "targetId" to track.targetId,
+                "targetName" to track.targetName,
+                "durationMs" to dev.svgpro.core.util.Numbers.format(track.durationMs.toDouble()),
+                "loop" to track.loop,
+                "enabled" to track.enabled,
+                "parentId" to track.parentId,
+                "motionBlur" to track.motionBlur,
+                "shutterAngle" to track.shutterAngle,
+                "timeRemap" to track.timeRemap,
+                "motionPath" to (if (track.motionPath != null) mapOf(
+                    "pathData" to track.motionPath!!.pathData,
+                    "durationMs" to dev.svgpro.core.util.Numbers.format(track.motionPath!!.durationMs.toDouble()),
+                    "loop" to track.motionPath!!.loop,
+                ) else null),
+                "keyframes" to track.keyframes.map { kf ->
+                    mapOf(
+                        "timeMs" to dev.svgpro.core.util.Numbers.format(kf.timeMs.toDouble()),
+                        "easing" to kf.easeToString(),
+                        "properties" to kf.properties,
+                    )
+                },
+                "markers" to track.markers.map { m ->
+                    mapOf(
+                        "id" to m.id,
+                        "timeMs" to dev.svgpro.core.util.Numbers.format(m.timeMs.toDouble()),
+                        "label" to m.label,
+                        "color" to m.color,
+                    )
+                },
+            )
+        }
+        doc.root.setAttr("data-svgpro-keyframes", dev.svgpro.core.util.Json.stringify(arr))
+        notifyChanged()
+    }
+
+    /** トータル再生時間を再計算 */
+    fun recomputeKeyframeDuration() {
+        val max = animationTracks.mapNotNull { track ->
+            track.durationMs.takeIf { track.enabled }
+        }.maxOrNull() ?: 2000L
+        keyframeDurationMs = max
+    }
+
+    /** 選択オブジェクトにキーフレームトラックを新規作成（または既存トラックにキーフレーム追加） */
+    fun addKeyframeForSelection(timeMs: Long = 0) {
+        val target = selection.firstOrNull() ?: return
+        val targetId = target.id ?: return
+        val targetName = labelFor(target)
+
+        // 既存トラックを探す
+        var track = animationTracks.firstOrNull { it.targetId == targetId }
+        if (track == null) {
+            track = AnimationTrack(targetId = targetId, targetName = targetName)
+            animationTracks.add(track)
+        }
+
+        // 現在のオブジェクト属性をスナップショット
+        val props = LinkedHashMap<String, String>()
+        // 位置（transform から x,y を抽出、または x/y 属性）
+        val x = target.attr("x") ?: "0"
+        val y = target.attr("y") ?: "0"
+        val transform = target.attr("transform") ?: ""
+        val fill = target.attr("fill") ?: ""
+        val opacity = target.attr("opacity") ?: "1"
+        val strokeWidth = target.attr("stroke-width") ?: "1"
+        props["x"] = x
+        props["y"] = y
+        props["transform"] = transform
+        props["fill"] = fill
+        props["opacity"] = opacity
+        props["stroke-width"] = strokeWidth
+
+        // 同時刻のキーフレームがあれば更新、なければ追加
+        val existing = track.keyframes.firstOrNull { it.timeMs == timeMs }
+        if (existing != null) {
+            val idx = track.keyframes.indexOf(existing)
+            track.keyframes[idx] = Keyframe(timeMs = timeMs, properties = props, easeType = existing.easeType, bezier = existing.bezier)
+        } else {
+            track.keyframes.add(Keyframe(timeMs = timeMs, properties = props, easeType = EaseType.LINEAR))
+            track.keyframes.sortBy { it.timeMs }
+        }
+
+        recomputeKeyframeDuration()
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックを削除 */
+    fun removeKeyframeTrack(trackId: String) {
+        animationTracks.removeAll { it.id == trackId }
+        recomputeKeyframeDuration()
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックの有効/無効を切替 */
+    fun toggleKeyframeTrackEnabled(trackId: String) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(enabled = !track.enabled)
+        recomputeKeyframeDuration()
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックのループ設定を切替 */
+    fun toggleKeyframeTrackLoop(trackId: String) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(loop = !track.loop)
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** キーフレームのイージングを変更 */
+    fun setKeyframeEasing(trackId: String, timeMs: Long, easing: String) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val kf = track.keyframes.firstOrNull { it.timeMs == timeMs } ?: return
+        val (easeType, bezier) = Keyframe.easeFromString(easing)
+        val idx = track.keyframes.indexOf(kf)
+        track.keyframes[idx] = kf.copy(easeType = easeType, bezier = bezier)
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** キーフレームを削除 */
+    fun removeKeyframe(trackId: String, timeMs: Long) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        track.keyframes.removeAll { it.timeMs == timeMs }
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** アニメーションオーバーライドを元に戻す（描画後） */
+    fun clearAnimationOverrides() {
+        for ((el, backup) in animationBackup) {
+            for ((k, v) in backup) {
+                el.setAttr(k, v)
+            }
+        }
+        animationBackup.clear()
+    }
+
+    /** 親トラックのIDリストを再帰的に取得（循環参照防止付き） */
+    private fun resolveParentChain(trackId: String, visited: MutableSet<String> = mutableSetOf()): List<String> {
+        if (visited.contains(trackId)) return emptyList() // 循環参照防止
+        visited.add(trackId)
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return emptyList()
+        return track.parentId?.let { parentId ->
+            listOf(parentId) + resolveParentChain(parentId, visited)
+        } ?: emptyList()
+    }
+
+    /** 指定トラックにおける親の合成変換行列を取得（親の transform を乗算） */
+    private fun getParentTransformMatrix(trackId: String, timeMs: Long): Matrix? {
+        val chain = resolveParentChain(trackId)
+        if (chain.isEmpty()) return null
+        var combined = Matrix.IDENTITY
+        for (parentId in chain) {
+            val parentTrack = animationTracks.firstOrNull { it.id == parentId } ?: continue
+            val target = doc.root.findById(parentTrack.targetId) ?: continue
+            val parentTransformStr = target.attr("transform")
+            if (parentTransformStr.isNullOrBlank()) continue
+            val parentMatrix = Matrix.fromSvgTransform(parentTransformStr)
+            combined = combined.then(parentMatrix)
+        }
+        return if (combined == Matrix.IDENTITY) null else combined
+    }
+
+    /**
+     * 指定時刻におけるアニメーション値を要素に一時適用（描画前）。
+     * 親子関係（parentId）に対応：親の transform を子に合成して適用する。
+     */
+    fun applyAnimationAt(timeMs: Long) {
+        animationBackup.clear()
+        // 1. 全トラックの値を事前計算
+        val trackValues = mutableMapOf<String, Map<String, String>>()
+        for (track in animationTracks) {
+            if (!track.enabled) continue
+            val values = keyframeEngine.getValuesAt(track, timeMs)
+            if (values.isNotEmpty()) {
+                trackValues[track.id] = values
+            }
+        }
+        // 2. 親子関係を考慮して適用（親から子へ順に）
+        for (track in animationTracks) {
+            if (!track.enabled) continue
+            val target = doc.root.findById(track.targetId) ?: continue
+            val values = trackValues[track.id] ?: continue
+            val backup = animationBackup.getOrPut(target) { LinkedHashMap() }
+            for ((k, v) in values) {
+                if (!backup.containsKey(k)) {
+                    backup[k] = target.attr(k)
+                }
+                if (k == "transform") {
+                    // 親の変換を合成
+                    val parentMatrix = getParentTransformMatrix(track.id, timeMs)
+                    if (parentMatrix != null) {
+                        val childMatrix = Matrix.fromSvgTransform(v)
+                        val composed = parentMatrix.then(childMatrix)
+                        target.setAttr(k, Matrix.toSvgString(composed))
+                    } else {
+                        target.setAttr(k, v)
+                    }
+                } else {
+                    target.setAttr(k, v)
+                }
+            }
+        }
+    }
+
+    /** モーションブラー用：指定トラックの速度ベクトルを取得（ピクセル/秒） */
+    fun getTrackVelocity(trackId: String, timeMs: Long): Pair<Double, Double>? {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return null
+        return keyframeEngine.getVelocity(track, timeMs)
+    }
+
+    /** タイムリマッピング適用後の時刻を取得 */
+    fun getRemappedTime(trackId: String, timeMs: Long): Long {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return timeMs
+        if (track.timeRemap == 0.0) return timeMs
+        return (timeMs.toDouble() / track.timeRemap.coerceAtLeast(0.001)).toLong()
+    }
+
+    /** マーカーをトラックに追加 */
+    fun addMarker(trackId: String, timeMs: Long, label: String, color: String = "#FF0000") {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        val newMarkers = mutableListOf<Marker>()
+        newMarkers.addAll(track.markers)
+        newMarkers.add(Marker(timeMs = timeMs, label = label, color = color))
+        animationTracks[idx] = track.copy(markers = newMarkers)
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** マーカーを削除 */
+    fun removeMarker(trackId: String, markerId: String) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        val newMarkers = mutableListOf<Marker>()
+        newMarkers.addAll(track.markers.filter { it.id != markerId })
+        animationTracks[idx] = track.copy(markers = newMarkers)
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックのモーションブラー設定を切替 */
+    fun toggleKeyframeTrackMotionBlur(trackId: String) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(motionBlur = !track.motionBlur)
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックのタイムリマッピングを設定 */
+    fun setKeyframeTrackTimeRemap(trackId: String, remap: Double) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(timeRemap = remap.coerceIn(-10.0, 10.0))
+        recomputeKeyframeDuration()
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックの親子関係を設定 */
+    fun setKeyframeTrackParent(trackId: String, parentId: String?) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        // 循環参照チェック
+        if (parentId != null) {
+            val chain = resolveParentChain(parentId)
+            if (chain.contains(trackId)) return // 循環参照防止
+        }
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(parentId = parentId)
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックのシャッター角度を設定 */
+    fun setKeyframeTrackShutterAngle(trackId: String, angle: Double) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(shutterAngle = angle.coerceIn(0.0, 720.0))
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** トラックのモーションパスを設定 */
+    fun setKeyframeTrackMotionPath(trackId: String, pathData: String, durationMs: Long) {
+        val track = animationTracks.firstOrNull { it.id == trackId } ?: return
+        val idx = animationTracks.indexOf(track)
+        animationTracks[idx] = track.copy(
+            motionPath = MotionPath(pathData = pathData, durationMs = durationMs)
+        )
+        recomputeKeyframeDuration()
+        saveKeyframesToDocument()
+        notifyChanged()
+    }
+
+    /** 対象オブジェクトの表示用ラベルを取得 */
+    private fun labelFor(el: Element): String {
+        val id = el.attr("id")
+        if (!id.isNullOrBlank()) return id
+        return when (el.tag) {
+            "g" -> "グループ"
+            "text" -> "テキスト \"${el.textContent().take(12)}\""
+            "image" -> "画像"
+            "use" -> "参照"
+            else -> el.tag
+        }
+    }
+
     // ―――― コメント/注釈機能（カテゴリ17） ――――
 
     /** ドキュメント上のコメント/注釈。 */
@@ -789,6 +1471,10 @@ class Editor {
         fitToPage()
         onDocumentReplaced()
         onChanged()
+        // ドキュメントからアニメーション定義を読み込む
+        loadAnimationsFromDocument()
+        // キーフレームトラックを読み込む
+        loadKeyframesFromDocument()
     }
 
     fun newDocument(w: Double, h: Double) {

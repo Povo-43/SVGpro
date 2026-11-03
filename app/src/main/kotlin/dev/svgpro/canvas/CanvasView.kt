@@ -488,7 +488,14 @@ class CanvasView @JvmOverloads constructor(
         // 合成してconcatするため、ここでviewMatrixを前置きしてはならない。
         // 二重に適用するとズーム²スケールとなり、選択枠・ページ背景（viewMatrix1回分）と
         // 描画がズレる（書き出しは1回適用なので正確に見える、という症状の原因）。
+        // キーフレームアニメーション適用（描画時のみ属性を一時上書き）
+        if (editor.isKeyframePlaying) {
+            editor.applyAnimationAt(editor.keyframeTimeMs)
+        }
         renderer.draw(canvas, editor)
+        if (editor.isKeyframePlaying) {
+            editor.clearAnimationOverrides()
+        }
 
         // グリッド
         if (editor.showGrid) {

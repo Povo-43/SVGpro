@@ -280,6 +280,28 @@ object AppIcons {
         stroke = 1.4f,
     )
 
+    val RepeatIcon: ImageVector = icon(
+        "Repeat",
+        "M17,3 L5,3 C3.9,3 3,3.9 3,5 L3,19 C3,20.1 3.9,21 5,21 L19,21 C20.1,21 21,20.1 21,19 L21,7 L13,7 L13,9 L17,9 C18.1,9 19,9.9 19,11 C19,12.1 18.1,13 17,13 L7,13 C5.9,13 5,12.1 5,11 L5,5 C5,3.9 5.9,3 7,3 L13,3 L13,5 L7,5 C6.4,5 6,4.6 6,4 C6,3.4 6.4,3 7,3 L17,3 Z M17,15 L5,15 C3.9,15 3,15.9 3,17 L3,23 C3,24.1 3.9,25 5,25 L19,25 C20.1,25 21,24.1 21,23 L21,17 L13,17 L13,15 L17,15 Z M17,17 C18.1,17 19,17.9 19,19 C19,20.1 18.1,21 17,21 L7,21 C5.9,21 5,20.1 5,19 L5,13 C5,11.9 5.9,11 7,11 L13,11 L13,13 L7,13 C6.4,13 6,12.6 6,12 C6,11.4 6.4,11 7,11 L17,11 C17.6,11 18,11.4 18,12 C18,12.6 17.6,13 17,13 L13,13 L13,15 L17,15 Z",
+        stroke = 1.4f,
+    )
+    val RepeatOffIcon: ImageVector = icon(
+        "RepeatOff",
+        "M17,3 L7,3 C5.9,3 5,3.9 5,5 L5,19 C5,20.1 5.9,21 7,21 L13,21 L13,19 L17,19 C18.1,19 19,19.9 19,21 L19,23 C19,24.1 18.1,25 17,25 L7,25 C5.9,25 5,24.1 5,23 L5,5 C5,3.9 5.9,3 7,3 L17,3 Z M7,7 L11,7 M7,9 L11,9 M7,11 L11,11 M7,13 L11,13 M13,7 L17,7 M13,9 L17,9 M13,11 L17,11 M13,13 L17,13 M5,17 L11,17 M5,19 L11,19 M5,21 L11,21 M5,23 L11,23 M13,17 L17,17 M13,19 L17,19 M13,21 L17,21 M13,23 L17,23 M7,17 L11,17",
+        stroke = 1.4f,
+    )
+
+    val StopIcon: ImageVector = filledIcon(
+        "StopIcon",
+        "M6,6 L18,6 L18,18 L6,18 Z",
+        colorHex = 0xFFB53202,
+    )
+    val PlayIcon: ImageVector = filledIcon(
+        "PlayIcon",
+        "M8,5 L19,12 L8,19 Z",
+        colorHex = 0xFFB53202,
+    )
+
     val Xor: ImageVector = ImageVector.Builder(
         name = "Xor",
         defaultWidth = 24.dp, defaultHeight = 24.dp,
@@ -302,4 +324,36 @@ object AppIcons {
             fill = SolidColor(Color(0xFFE8E8E8)),
         )
     }.build()
+
+    // ―― アニメーション用アイコン ――
+    val Animation: ImageVector = icon(
+        "Animation",
+        "M12,2 C6.5,2 2,6.5 2,12 C2,17.5 6.5,22 12,22 C17.5,22 22,17.5 22,12 C22,6.5 17.5,2 12,2 Z M12,6 C9.2,6 7,8.2 7,11 C7,13.8 9.2,16 12,16 C14.8,16 17,13.8 17,11 C17,8.2 14.8,6 12,6 Z M12,8 C13.1,8 14,8.9 14,10 C14,11.1 13.1,12 12,12 C10.9,12 10,11.1 10,10 C10,8.9 10.9,8 12,8 Z",
+        stroke = 1.5f,
+    )
+    val Timeline: ImageVector = icon(
+        "Timeline",
+        "M4,4 L20,4 L20,20 L4,20 Z M4,8 L20,8 M4,12 L20,12 M4,16 L20,16 M6,4 L6,20 M10,4 L10,20 M14,4 L14,20 M18,4 L18,20",
+        stroke = 1.2f,
+    )
+    val Keyframe: ImageVector = icon(
+        "Keyframe",
+        "M12,3 L15,6 L12,9 L9,6 Z M12,12 L15,15 L12,18 L9,15 Z M3,12 L21,12 M12,3 L12,21",
+        stroke = 1.4f,
+    )
+    val AddAnimation: ImageVector = icon(
+        "AddAnimation",
+        "M4,4 L20,4 L20,20 L4,20 Z M12,8 L12,16 M8,12 L16,12",
+        stroke = 1.4f,
+    )
+    val AnimationMode: ImageVector = icon(
+        "AnimationMode",
+        "M12,3 L21,9 L12,15 L3,9 Z M12,6 L12,18 M6,12 L18,12",
+        stroke = 1.4f,
+    )
+    val Pause: ImageVector = icon(
+        "Pause",
+        "M14,19 H18 V5 H14 Z M10,19 H6 V5 H10 Z",
+        stroke = 1.6f,
+    )
 }
