@@ -74,6 +74,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showShortcutCustomize by remember { mutableStateOf(false) }
     var showContextMenu by remember { mutableStateOf(false) }
     var contextMenuPos by remember { mutableStateOf(FloatArray(2)) }
+    var showParametricShape by remember { mutableStateOf(false) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -218,6 +219,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onShortcuts = { showShortcuts = true },
                 onCommandPalette = { showCommandPalette = true },
                 onShortcutCustomize = { showShortcutCustomize = true },
+                onParametricShape = { showParametricShape = true },
                 onHistory = { showPanel = if (showPanel == "history") null else "history" },
             )
 
@@ -383,6 +385,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             ShortcutCustomizeDialog(editor = editor, onDismiss = { showShortcutCustomize = false })
         }
 
+        if (showParametricShape) {
+            ParametricShapeDialog(editor = editor, onDismiss = { showParametricShape = false })
+        }
+
         if (showContextMenu) {
             ContextMenu(
                 editor = editor,
@@ -530,6 +536,7 @@ private fun TopBar(
     onShortcuts: () -> Unit,
     onCommandPalette: () -> Unit,
     onShortcutCustomize: () -> Unit,
+    onParametricShape: () -> Unit,
     onHistory: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -634,6 +641,11 @@ private fun TopBar(
                         text = { Text("ショートカットカスタマイズ…") },
                         leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onShortcutCustomize() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("パラメトリック図形生成…") },
+                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onParametricShape() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },

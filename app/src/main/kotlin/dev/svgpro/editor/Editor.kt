@@ -1850,6 +1850,66 @@ class Editor {
         )
     }
 
+    // ―――― パラメトリック図形生成（カテゴリ17） ――――
+
+    /** ハート形パス */
+    fun heartPath(cx: Double, cy: Double, size: Double): PathData {
+        val segs = ArrayList<Seg>()
+        val pts = 64
+        for (i in 0..pts) {
+            val t = i * 2 * Math.PI / pts
+            // ハートのパラメトリック方程式
+            val x = 16.0 * kotlin.math.sin(t) * kotlin.math.sin(t) * kotlin.math.sin(t)
+            val y = -(13.0 * kotlin.math.cos(t) - 5.0 * kotlin.math.cos(2.0 * t) - 2.0 * kotlin.math.cos(3.0 * t) - kotlin.math.cos(4.0 * t))
+            val px = cx + x * size / 17.0
+            val py = cy + y * size / 17.0
+            if (i == 0) segs.add(Seg.Move(px, py)) else segs.add(Seg.Line(px, py))
+        }
+        segs.add(Seg.Close)
+        return PathData(segs)
+    }
+
+    /** ギア形パス（歯数、外径、内径） */
+    fun gearPath(cx: Double, cy: Double, teeth: Int, outerR: Double, innerR: Double): PathData {
+        val segs = ArrayList<Seg>()
+        val step = 2 * Math.PI / teeth
+        for (i in 0 until teeth * 2) {
+            val angle = i * step / 2
+            val r = if (i % 2 == 0) outerR else innerR
+            val x = cx + r * kotlin.math.cos(angle)
+            val y = cy + r * kotlin.math.sin(angle)
+            if (i == 0) segs.add(Seg.Move(x, y)) else segs.add(Seg.Line(x, y))
+        }
+        segs.add(Seg.Close)
+        return PathData(segs)
+    }
+
+    /** スパイラル形パス（巻き数） */
+    fun spiralPath(cx: Double, cy: Double, turns: Double, maxR: Double): PathData {
+        val segs = ArrayList<Seg>()
+        val pts = 64 * turns.toInt().coerceAtLeast(1)
+        for (i in 0..pts) {
+            val t = i / pts.toDouble() * turns * 2 * Math.PI
+            val r = maxR * t / (turns * 2 * Math.PI)
+            val x = cx + r * kotlin.math.cos(t)
+            val y = cy + r * kotlin.math.sin(t)
+            if (i == 0) segs.add(Seg.Move(x, y)) else segs.add(Seg.Line(x, y))
+        }
+        return PathData(segs)
+    }
+
+    /** 波形パス（波数、振幅） */
+    fun wavePath(cx: Double, cy: Double, width: Double, waves: Double, amplitude: Double): PathData {
+        val segs = ArrayList<Seg>()
+        val pts = 32
+        for (i in 0..pts) {
+            val x = cx - width / 2 + width * i / pts
+            val y = cy + kotlin.math.sin(2 * Math.PI * waves * i / pts) * amplitude
+            if (i == 0) segs.add(Seg.Move(x, y)) else segs.add(Seg.Line(x, y))
+        }
+        return PathData(segs)
+    }
+
     // ―――― パス操作（高度） ――――
 
     fun convertToPath(elems: List<Element>): Boolean {

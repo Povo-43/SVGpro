@@ -1075,6 +1075,121 @@ fun ContextMenu(
     }
 }
 
+/** パラメトリック図形生成ダイアログ（カテゴリ17）。 */
+@Composable
+fun ParametricShapeDialog(editor: Editor, onDismiss: () -> Unit) {
+    var shapeType by remember { mutableStateOf("heart") }
+    var sizeText by remember { mutableStateOf("100") }
+    var teethText by remember { mutableStateOf("8") }
+    var turnsText by remember { mutableStateOf("2") }
+    var ampText by remember { mutableStateOf("20") }
+
+    fun create() {
+        val cx = 100.0
+        val cy = 100.0
+        val pd = when (shapeType) {
+            "heart" -> {
+                val s = dev.svgpro.core.util.Numbers.parse(sizeText) ?: 100.0
+                editor.heartPath(cx, cy, s)
+            }
+            "gear" -> {
+                val t = dev.svgpro.core.util.Numbers.parse(teethText) ?: 8
+                val o = dev.svgpro.core.util.Numbers.parse(sizeText) ?: 60.0
+                val i = o * 0.6
+                editor.gearPath(cx, cy, t.toInt(), o, i)
+            }
+            "spiral" -> {
+                val turns = dev.svgpro.core.util.Numbers.parse(turnsText) ?: 2.0
+                val r = dev.svgpro.core.util.Numbers.parse(sizeText) ?: 60.0
+                editor.spiralPath(cx, cy, turns, r)
+            }
+            "wave" -> {
+                val w = dev.svgpro.core.util.Numbers.parse(sizeText) ?: 120.0
+                val waves = dev.svgpro.core.util.Numbers.parse(turnsText) ?: 3.0
+                val amp = dev.svgpro.core.util.Numbers.parse(ampText) ?: 20.0
+                editor.wavePath(cx, cy, w, waves, amp)
+            }
+            else -> editor.heartPath(cx, cy, 100.0)
+        }
+        val el = dev.svgpro.core.svg.Element("path")
+        el.setAttr("d", pd.write())
+        editor.applyCurrentStyle(el)
+        editor.addElement(el, "parametric ${shapeType}")
+        onDismiss()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("パラメトリック図形生成") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("種類", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                    listOf("heart" to "ハート", "gear" to "ギア", "spiral" to "スパイラル", "wave" to "波形").forEach { (v, label) ->
+                        AssistChip(
+                            selected = shapeType == v,
+                            onClick = { shapeType = v },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                when (shapeType) {
+                    "heart", "gear", "spiral" -> {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("サイズ", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                            OutlinedTextField(
+                                value = sizeText, onValueChange = { sizeText = it },
+                                modifier = Modifier.width(80.dp), singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+                if (shapeType == "gear") {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("歯数", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                        OutlinedTextField(
+                            value = teethText, onValueChange = { teethText = it },
+                            modifier = Modifier.width(80.dp), singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                if (shapeType == "spiral") {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("巻き数", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                        OutlinedTextField(
+                            value = turnsText, onValueChange = { turnsText = it },
+                            modifier = Modifier.width(80.dp), singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                if (shapeType == "wave") {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("波数", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                        OutlinedTextField(
+                            value = turnsText, onValueChange = { turnsText = it },
+                            modifier = Modifier.width(80.dp), singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("振幅", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
+                        OutlinedTextField(
+                            value = ampText, onValueChange = { ampText = it },
+                            modifier = Modifier.width(80.dp), singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = create) { Text("生成") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
 /** RGB(ARGB) → CMYK（各値 0.0〜1.0）。 */
 private fun rgbToCmyk(argb: Int): Triple4<Double, Double, Double, Double> {
     val r = ((argb shr 16) and 0xFF) / 255.0
