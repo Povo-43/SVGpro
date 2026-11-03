@@ -480,6 +480,8 @@ class CanvasView @JvmOverloads constructor(
         drawDrafts(canvas, am)
         // マーキー
         drawMarquee(canvas)
+        // 投げ縄選択（Shift+ドラッグ）
+        drawLasso(canvas)
         // スマートガイド（移動中の整列補助線）
         drawSmartGuides(canvas)
         // グラデーションハンドル
@@ -777,6 +779,20 @@ class CanvasView @JvmOverloads constructor(
             RectF(a.x.toFloat(), a.y.toFloat(), b.x.toFloat(), b.y.toFloat()),
             marqueePaint,
         )
+    }
+
+    /** 投げ縄選択パス（Shift+ドラッグで記録） */
+    private fun drawLasso(canvas: Canvas) {
+        val pts = tools.lassoPath()
+        if (pts.size < 2) return
+        val path = Path()
+        val first = editor.userToScreen(pts[0])
+        path.moveTo(first.x.toFloat(), first.y.toFloat())
+        for (i in 1 until pts.size) {
+            val p = editor.userToScreen(pts[i])
+            path.lineTo(p.x.toFloat(), p.y.toFloat())
+        }
+        canvas.drawPath(path, marqueePaint)
     }
 
     private fun drawHoverCursor(canvas: Canvas, screen: Vec) {

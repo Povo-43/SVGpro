@@ -10,6 +10,7 @@ import dev.svgpro.editor.Editor
 import dev.svgpro.editor.NodeRef
 import dev.svgpro.editor.ToolType
 import dev.svgpro.editor.computeSmartGuides
+import dev.svgpro.editor.selectInLasso
 import dev.svgpro.editor.selectParent
 import dev.svgpro.editor.gradientHandlePoints
 import dev.svgpro.editor.setupGradientEdit
@@ -40,6 +41,8 @@ class ToolController(val editor: Editor) {
 
     // select用
     private var dragSession: Editor.DragSession? = null
+    /** 投げ縄選択中のポイント列（画面座標＝user座標） */
+    private var lassoPoints = ArrayList<Vec>()
     private var preTransforms: List<Pair<dev.svgpro.core.svg.Element, String?>>? = null
     private var scaleAnchor = Vec.ZERO
     private var scaleStart = Vec.ZERO
@@ -70,7 +73,7 @@ class ToolController(val editor: Editor) {
     private var downTime = 0L
     private var moved = false
 
-    enum class Mode { NONE, MOVE, SCALE, ROTATE, MARQUEE, NODE_DRAG, HANDLE_DRAG, SHAPE, FREEHAND, PAN, GRADIENT_DRAG }
+    enum class Mode { NONE, MOVE, SCALE, ROTATE, MARQUEE, LASSO, NODE_DRAG, HANDLE_DRAG, SHAPE, FREEHAND, PAN, GRADIENT_DRAG }
 
     enum class SelectionHandle { TOP_LEFT, TOP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT, BOTTOM, BOTTOM_LEFT, LEFT, ROTATE }
 
@@ -128,7 +131,7 @@ class ToolController(val editor: Editor) {
             ToolType.HAND -> {
                 mode = Mode.PAN
             }
-            ToolType.SELECT -> onSelectDown(user, screen, isStylus, doubleTap)
+            ToolType.SELECT -> onSelectDown(user, screen, ev, isStylus, doubleTap)
             ToolType.NODE -> onNodeDown(user, screen, doubleTap, isStylus)
             ToolType.PEN -> onPenDown(user, isStylus)
             ToolType.GRADIENT -> onGradientDown(user, screen)
@@ -232,6 +235,10 @@ class ToolController(val editor: Editor) {
             Mode.MARQUEE -> {
                 editor.notifyChanged()
             }
+            Mode.LASSO -> {
+                lassoPoints.add(user)
+                editor.notifyChanged()
+            }
             Mode.NODE_DRAG -> {
                 val session = editor.nodeSession ?: return
                 var d = user - nodeDragStart
@@ -312,6 +319,11 @@ class ToolController(val editor: Editor) {
                     val hit = editor.trace.hitTest(user, 8.0 / editor.zoom)
                     editor.select(hit, additive = isShift(ev))
                 }
+                editor.notifyChanged()
+            }
+            Mode.LASSO -> {
+                editor.selectInLasso(lassoPoints)
+                lassoPoints.clear()
                 editor.notifyChanged()
             }
             Mode.NODE_DRAG, Mode.HANDLE_DRAG -> {
@@ -494,7 +506,15 @@ class ToolController(val editor: Editor) {
 
     // ―――― SELECT tool ――――
 
-    private fun onSelectDown(user: Vec, screen: Vec, isStylus: Boolean, doubleTap: Boolean) {
+    private fun onSelectDown(user: Vec, screen: Vec, ev: MotionEvent, isStylus: Boolean, doubleTap: Boolean) {
+        // 投げ縄選択（Shift+ドラッグ）
+        if (isShift(ev)) {
+            mode = Mode.LASSO
+            lassoPoints = ArrayList()
+            lassoPoints.add(user)
+            editor.notifyChanged()
+            return
+        }
         // ハンドル判定
         val handle = hitHandle(screen, 22.0)
         if (handle != null && editor.selection.isNotEmpty()) {
