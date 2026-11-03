@@ -32,9 +32,11 @@ jobs:
 
       # リリース鍵（キーストア）を GitHub Secrets から復元。PR ではスキップ。
       - name: Restore release keystore from GitHub Secret
-        if: github.event_name != 'pull_request' && secrets.RELEASE_KEYSTORE_B64 != ''
+        if: github.event_name != 'pull_request'
         run: |
-          echo "${{ secrets.RELEASE_KEYSTORE_B64 }}" | base64 -d > app/svgpro-release.keystore
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_B64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_B64 }}" | base64 -d > app/svgpro-release.keystore
+          fi
 
       - name: Run core tests
         run: ./gradlew :core:test --console=plain
