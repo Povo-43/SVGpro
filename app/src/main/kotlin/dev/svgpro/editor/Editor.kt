@@ -25,13 +25,16 @@ import dev.svgpro.core.path.SubpathNodes
 import dev.svgpro.core.svg.Element
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.round
+import kotlin.math.sin
 
 /** ツール種別 */
 enum class ToolType {
     SELECT, NODE, PEN, FREEHAND,
     RECT, RRECT, ELLIPSE, LINE, POLYGON, STAR, POLYLINE,
+    ARC, SECTOR,
     TEXT, HAND, EYEDROPPER, GRADIENT,
 }
 
@@ -375,13 +378,59 @@ class Editor {
     var nodeSession: NodeSession? = null
 
     // ―――― 設定 ――――
-    var gridSize = 10.0
+    /** グリッド間隔（user単位）。UIから変更可能。ルーラー目盛りと連動する。 */
+    var gridSize by mutableStateOf(10.0)
     var showGrid by mutableStateOf(false)
     var showRulers by mutableStateOf(false)
     var snapToGrid by mutableStateOf(false)
     var snapToObject = true
+    /** ルーラーからガイド作成/移動時にグリッドへスナップする（Shift等で格子に吸着） */
+    var snapGuidesToGrid = true
     var penOnly by mutableStateOf(false) // スタイラスのみで作図（指はパン/ズーム）。UIトグルから読まれる
     var usePressure = true
+
+    // キャンバスビュー回転（度、正=画面上で時計回り）。editデータの座標は不変。
+    var canvasRotation by mutableStateOf(0.0)
+
+    /** ビューをdeg度回転させる（累積）。 */
+    fun rotateCanvas(deltaDeg: Double) {
+        canvasRotation = ((canvasRotation + deltaDeg) % 360.0 + 360.0) % 360.0
+        onZoomChanged()
+        onChanged()
+    }
+
+    /** ビュー回転を絶対角度に設定する。 */
+    fun setCanvasRotation(deg: Double) {
+        canvasRotation = ((deg % 360.0 + 360.0) % 360.0)
+        onZoomChanged()
+        onChanged()
+    }
+
+    /** ルーラー表示単位。 */
+    enum class RulerUnit { PX, MM, CM, IN, PT }
+
+    /** ルーラー単位（user=pxを基準にDPIで物理単位へ換算）。 */
+    var rulerUnit by mutableStateOf(RulerUnit.PX)
+    /** DPI（user単位→物理長さの換算基準。SVGの1ユーザ単位=1/96インチを既定とする）。 */
+    var rulerDpi by mutableStateOf(96.0)
+
+    /** user単位の長さをルーラー単位へ換算 */
+    fun rulerLength(userPx: Double): Double = when (rulerUnit) {
+        RulerUnit.PX -> userPx
+        RulerUnit.MM -> userPx * 25.4 / rulerDpi.coerceAtLeast(1.0)
+        RulerUnit.CM -> userPx * 2.54 / rulerDpi.coerceAtLeast(1.0)
+        RulerUnit.IN -> userPx / rulerDpi.coerceAtLeast(1.0)
+        RulerUnit.PT -> userPx * 72.0 / rulerDpi.coerceAtLeast(1.0)
+    }
+
+    /** ルーラー単位のラベル */
+    fun rulerUnitLabel(): String = when (rulerUnit) {
+        RulerUnit.PX -> "px"
+        RulerUnit.MM -> "mm"
+        RulerUnit.CM -> "cm"
+        RulerUnit.IN -> "in"
+        RulerUnit.PT -> "pt"
+    }
 
     // ―――― スナップ詳細設定 ――――
     /** スナップ許容距離（画面px基準。拡大率でuser距離へ変換） */
@@ -495,11 +544,30 @@ class Editor {
 
     // ―――― 座標変換 ――――
 
-    fun userToScreen(v: Vec): Vec = viewMatrix.apply(v)
+    /** 画面の中心（ビュー回転の中心）。未設定時は(0,0)。 */
+    private fun viewCenter(): Vec = Vec(viewportW.coerceAtLeast(1.0) / 2.0, viewportH.coerceAtLeast(1.0) / 2.0)
 
+    /** user→screen（viewMatrix＋キャンバスビュー回転を適用）。 */
+    fun userToScreen(v: Vec): Vec {
+        val p = viewMatrix.apply(v)
+        if (canvasRotation == 0.0) return p
+        val c = viewCenter()
+        val r = Math.toRadians(canvasRotation)
+        val ca = cos(r); val sa = sin(r)
+        val d = p - c
+        return c + Vec(ca * d.x - sa * d.y, sa * d.x + ca * d.y)
+    }
+
+    /** screen→user（キャンバスビュー回転を逆適用してからviewMatrixを逆変換）。 */
     fun screenToUser(v: Vec): Vec {
-        val inv = viewMatrix.invert()
-        return inv.apply(v)
+        val p = if (canvasRotation == 0.0) v else {
+            val c = viewCenter()
+            val r = Math.toRadians(-canvasRotation)
+            val ca = cos(r); val sa = sin(r)
+            val d = v - c
+            c + Vec(ca * d.x - sa * d.y, sa * d.x + ca * d.y)
+        }
+        return viewMatrix.invert().apply(p)
     }
 
     val zoom: Double get() = viewMatrix.a
@@ -796,8 +864,21 @@ class Editor {
     fun moveGuideSilent(index: Int, pos: Double) {
         if (index !in guides.indices) return
         val g = guides[index]
-        guides[index] = g.copy(pos = pos)
+        var finalPos = pos
+        if (snapGuidesToGrid) {
+            finalPos = kotlin.math.round(finalPos / gridSize.coerceAtLeast(1e-6)) * gridSize
+        }
+        guides[index] = g.copy(pos = finalPos)
         onChanged()
+    }
+
+    /** グリッドにスナップした位置でガイドを追加する */
+    fun addGuideSnapped(g: Guide) {
+        var pos = g.pos
+        if (snapGuidesToGrid) {
+            pos = kotlin.math.round(pos / gridSize.coerceAtLeast(1e-6)) * gridSize
+        }
+        addGuide(g.copy(pos = pos))
     }
 
     fun updateGuide(index: Int, g: Guide) {
@@ -1312,6 +1393,17 @@ class Editor {
                 val pts = starPoints(startUser, endUser, curStarPoints)
                 Element("polygon").apply { setAttr("points", Shapes.pointsString(PathData.polygon(pts))) }
             }
+            ToolType.ARC, ToolType.SECTOR -> {
+                val center = startUser
+                val r = hypot(endUser.x - startUser.x, endUser.y - startUser.y)
+                if (r < 1.0) return null
+                // ドラッグ方向を終端角度、開始角度は3時方向(0°)とする。
+                // user座標系はY軸上向きのため、画面で下方向へドラッグすると角度は負（時計回り）になる。
+                val sweepDeg = Math.toDegrees(atan2(endUser.y - startUser.y, endUser.x - startUser.x))
+                val pd = if (kind == ToolType.ARC) arcPath(center, r, 0.0, sweepDeg)
+                else sectorPath(center, r, 0.0, sweepDeg)
+                Element("path").apply { setAttr("d", pd.write()) }
+            }
             else -> null
         }
     }
@@ -1340,6 +1432,45 @@ class Editor {
             out.add(Vec(cx + rr * kotlin.math.cos(a), cy + rr * kotlin.math.sin(a)))
         }
         return out
+    }
+
+    /** 中心c、半径r、開始角度startDeg、スイープsweepDeg（度、反時計回り正）の円弧パス */
+    private fun arcPath(c: Vec, r: Double, startDeg: Double, sweepDeg: Double): PathData {
+        val s = Math.toRadians(startDeg)
+        val e = s + Math.toRadians(sweepDeg)
+        val p1 = Vec(c.x + r * kotlin.math.cos(s), c.y + r * kotlin.math.sin(s))
+        val p2 = Vec(c.x + r * kotlin.math.cos(e), c.y + r * kotlin.math.sin(e))
+        val sweep = sweepDeg >= 0.0
+        val largeArc = kotlin.math.abs(sweepDeg) > 180.0
+        return PathData(
+            ArrayList(
+                listOf(
+                    Seg.Move(p1.x, p1.y),
+                    Seg.Arc(r, r, 0.0, largeArc, sweep, p2.x, p2.y),
+                ),
+            ),
+        )
+    }
+
+    /** 中心c、半径r、開始角度startDeg、スイープsweepDeg の扇形パス（中心を結ぶ2半径＋円弧＋閉じる） */
+    private fun sectorPath(c: Vec, r: Double, startDeg: Double, sweepDeg: Double): PathData {
+        val s = Math.toRadians(startDeg)
+        val e = s + Math.toRadians(sweepDeg)
+        val p1 = Vec(c.x + r * kotlin.math.cos(s), c.y + r * kotlin.math.sin(s))
+        val p2 = Vec(c.x + r * kotlin.math.cos(e), c.y + r * kotlin.math.sin(e))
+        val sweep = sweepDeg >= 0.0
+        val largeArc = kotlin.math.abs(sweepDeg) > 180.0
+        return PathData(
+            ArrayList(
+                listOf(
+                    Seg.Move(c.x, c.y),
+                    Seg.Line(p1.x, p1.y),
+                    Seg.Arc(r, r, 0.0, largeArc, sweep, p2.x, p2.y),
+                    Seg.Line(c.x, c.y),
+                    Seg.Close,
+                ),
+            ),
+        )
     }
 
     // ―――― パス操作（高度） ――――

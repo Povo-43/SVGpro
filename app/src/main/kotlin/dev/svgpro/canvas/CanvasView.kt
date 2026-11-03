@@ -226,7 +226,7 @@ class CanvasView @JvmOverloads constructor(
                 val rulerThickness = 22.0
                 if (editor.showRulers && ev.y <= rulerThickness && ev.x > rulerThickness) {
                     val user = editor.screenToUser(Vec(ev.x.toDouble(), ev.y.toDouble()))
-                    editor.addGuide(dev.svgpro.core.model.Guide(horizontal = true, pos = user.y))
+                    editor.addGuideSnapped(dev.svgpro.core.model.Guide(horizontal = true, pos = user.y))
                     guideDrag = editor.guides.size - 1
                     guideDragNew = true
                     invalidate()
@@ -234,7 +234,7 @@ class CanvasView @JvmOverloads constructor(
                 }
                 if (editor.showRulers && ev.x <= rulerThickness && ev.y > rulerThickness) {
                     val user = editor.screenToUser(Vec(ev.x.toDouble(), ev.y.toDouble()))
-                    editor.addGuide(dev.svgpro.core.model.Guide(horizontal = false, pos = user.x))
+                    editor.addGuideSnapped(dev.svgpro.core.model.Guide(horizontal = false, pos = user.x))
                     guideDrag = editor.guides.size - 1
                     guideDragNew = true
                     invalidate()
@@ -430,6 +430,16 @@ class CanvasView @JvmOverloads constructor(
         val am = SvgRenderer.toAndroid(vm)
         am.mapRect(pageScreen, pageUser)
 
+        // キャンバスビュー回転: コンテンツ全体を画面中心で回転させる。
+        // ルーラー・ホバーカーソルは画面固定のため、回転ブロックの外側で描画する。
+        canvas.save()
+        val rot = editor.canvasRotation
+        if (rot != 0.0) {
+            val cx = width / 2.0f
+            val cy = height / 2.0f
+            canvas.rotate(rot.toFloat(), cx, cy)
+        }
+
         // ページ背景（市松模様）
         canvas.drawRect(pageScreen, checkerPaint)
         canvas.drawRect(pageScreen, whitePaint)
@@ -466,9 +476,11 @@ class CanvasView @JvmOverloads constructor(
         if (editor.tool == ToolType.GRADIENT) {
             drawGradientHandles(canvas)
         }
-        // hover
+        canvas.restore()
+
+        // hover（画面固定・回転に影響されない）
         hoverPos?.let { drawHoverCursor(canvas, it) }
-        // ルーラー
+        // ルーラー（画面固定・回転に影響されない）
         if (editor.showRulers) {
             drawRulers(canvas)
         }
@@ -542,20 +554,15 @@ class CanvasView @JvmOverloads constructor(
         }
     }
 
-    /** ルーラー（上・左）。user座標の目盛りを描く */
+    /** ルーラー（上・左）。user座標の目盛りを描く。グリッド間隔と連動する */
     private fun drawRulers(canvas: Canvas) {
         val thickness = 22f
         canvas.drawRect(0f, 0f, width.toFloat(), thickness, rulerPaint)
         canvas.drawRect(0f, 0f, thickness, height.toFloat(), rulerPaint)
-        // 目盛り間隔: 画面上で70px前後になるuserステップ
-        val rawStep = 70.0 / editor.zoom.coerceAtLeast(1e-6)
-        val pow = Math.pow(10.0, Math.floor(Math.log10(rawStep)))
-        val step = when {
-            rawStep <= pow -> pow
-            rawStep <= 2 * pow -> 2 * pow
-            rawStep <= 5 * pow -> 5 * pow
-            else -> 10 * pow
-        }
+        // グリッド間隔を基準に、画面上で 70〜140px 前後になる目盛り間隔を決定（格子に合わせやすく）
+        var step = editor.gridSize.coerceAtLeast(1e-6)
+        while (step * editor.zoom < 70.0) step *= 2.0
+        while (step * editor.zoom > 140.0) step /= 2.0
         val vb = editor.doc.viewBox
         val startX = kotlin.math.floor((editor.screenToUser(Vec(0.0, 0.0)).x) / step) * step
         var x = startX
@@ -564,7 +571,11 @@ class CanvasView @JvmOverloads constructor(
             if (sx >= thickness) {
                 canvas.drawLine(sx.toFloat(), thickness - 6f, sx.toFloat(), thickness.toFloat(), rulerTickPaint)
                 if (step * editor.zoom > 55) {
-                    canvas.drawText(dev.svgpro.core.util.Numbers.format(x, 1), sx.toFloat() + 3f, thickness - 7f, rulerTextPaint)
+                    val v = editor.rulerLength(x)
+                    canvas.drawText(
+                        dev.svgpro.core.util.Numbers.format(v, 1) + editor.rulerUnitLabel(),
+                        sx.toFloat() + 3f, thickness - 7f, rulerTextPaint,
+                    )
                 }
             }
             x += step
@@ -576,7 +587,8 @@ class CanvasView @JvmOverloads constructor(
             if (sy >= thickness) {
                 canvas.drawLine(thickness - 6f, sy.toFloat(), thickness.toFloat(), sy.toFloat(), rulerTickPaint)
                 if (step * editor.zoom > 55) {
-                    val text = dev.svgpro.core.util.Numbers.format(y, 1)
+                    val v = editor.rulerLength(y)
+                    val text = dev.svgpro.core.util.Numbers.format(v, 1) + editor.rulerUnitLabel()
                     canvas.save()
                     canvas.rotate(-90f, thickness - 7f, sy.toFloat() - 3f)
                     canvas.drawText(text, thickness - 7f, sy.toFloat() - 3f, rulerTextPaint)

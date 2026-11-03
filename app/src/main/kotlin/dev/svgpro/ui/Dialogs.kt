@@ -537,6 +537,58 @@ fun DocumentSettingsDialog(
                         Text("グリッドスナップ", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                // グリッド間隔（ルーラー目盛りとも連動）
+                var gridSizeText by remember { mutableStateOf(editor.gridSize.toString()) }
+                LaunchedEffect(editor.gridSize) {
+                    gridSizeText = editor.gridSize.toString()
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = gridSizeText,
+                            onValueChange = {
+                                gridSizeText = it
+                                dev.svgpro.core.util.Numbers.parse(it)?.let { editor.gridSize = it }
+                            },
+                            label = { Text("グリッド間隔") },
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        var snapGuideGrid by remember { mutableStateOf(editor.snapGuidesToGrid) }
+                        Checkbox(snapGuideGrid, onCheckedChange = { snapGuideGrid = it; editor.snapGuidesToGrid = it })
+                        Text("ガイドをグリッドにスナップ", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                // ルーラー単位
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("ルーラー単位", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = {
+                            val units = dev.svgpro.editor.Editor.RulerUnit.values()
+                            val cur = editor.rulerUnit
+                            editor.rulerUnit = units[(units.indexOf(cur) + 1) % units.size]
+                        }) {
+                            Text(editor.rulerUnitLabel(), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("DPI", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.width(8.dp))
+                        var dpiText by remember { mutableStateOf(editor.rulerDpi.toString()) }
+                        OutlinedTextField(
+                            value = dpiText, onValueChange = { dpiText = it },
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            modifier = Modifier.width(56.dp),
+                            singleLine = true,
+                        )
+                        TextButton(onClick = {
+                            dev.svgpro.core.util.Numbers.parse(dpiText)?.let { if (it > 0) editor.rulerDpi = it }
+                        }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(smartOn, onCheckedChange = { smartOn = it; editor.smartGuides = it })

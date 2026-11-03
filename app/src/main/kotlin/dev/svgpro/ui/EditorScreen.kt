@@ -585,6 +585,8 @@ private val toolGroups: List<List<Pair<ToolType, ImageVector>>> = listOf(
         ToolType.POLYLINE to AppIcons.Polyline,
         ToolType.POLYGON to AppIcons.Polygon,
         ToolType.STAR to AppIcons.Star,
+        ToolType.ARC to AppIcons.Arc,
+        ToolType.SECTOR to AppIcons.Sector,
     ),
     listOf(ToolType.TEXT to AppIcons.TextTool),
     listOf(
@@ -606,6 +608,8 @@ private fun toolLabel(t: ToolType): String = when (t) {
     ToolType.POLYLINE -> "ポリライン"
     ToolType.POLYGON -> "多角形"
     ToolType.STAR -> "スター"
+    ToolType.ARC -> "円弧"
+    ToolType.SECTOR -> "扇形"
     ToolType.TEXT -> "テキスト"
     ToolType.GRADIENT -> "グラデーション"
     ToolType.EYEDROPPER -> "スポイト"
@@ -906,6 +910,20 @@ private fun StatusBar(editor: Editor, refresh: Int) {
                     editor.zoomBy(1.25, Vec(editor.viewportW / 2.0, editor.viewportH / 2.0))
                 }
                 MiniZoomButton(AppIcons.Fit, "全体表示") { editor.fitToPage() }
+                MiniZoomButton(AppIcons.RotateCW, "キャンバス回転元に戻す") {
+                    editor.setCanvasRotation(0.0)
+                }
+                MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 -90°") {
+                    editor.rotateCanvas(-90.0)
+                }
+                MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 +90°") {
+                    editor.rotateCanvas(90.0)
+                }
+                Text(
+                    if (editor.canvasRotation != 0.0) "回転 ${(editor.canvasRotation).toInt()}°" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         }
