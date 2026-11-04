@@ -219,6 +219,22 @@ class SubpathNodes(
     fun removeNode(j: Int): Boolean {
         if (nodes.size <= 2) return false
         val n = nodes.size
+
+        // 開パスの端点ノード: 前後のセグメントを統合せず、端ノードとその隣接セグメントを落とすだけ
+        if (!closed) {
+            if (j == 0) {
+                nodes.removeAt(0)
+                if (0 in segTypes.indices) segTypes.removeAt(0)
+                return true
+            }
+            if (j == n - 1) {
+                nodes.removeAt(n - 1)
+                val lastSegIdx = n - 2
+                if (lastSegIdx in segTypes.indices) segTypes.removeAt(lastSegIdx)
+                return true
+            }
+        }
+
         val prevIdx = if (j == 0 && closed) n - 1 else j - 1
         val nextIdx = (j + 1) % n
 

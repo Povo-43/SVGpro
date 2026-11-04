@@ -198,11 +198,12 @@ fun computeValue(anim: Animation, globalTime: Double): Pair<AnimPhase, AnimValue
                     AnimValue.Number(values[idx])
                 }
                 fromNum != null && toNum != null -> AnimValue.Number(lerpNumber(fromNum, toNum, mode))
-                fromNum != null -> AnimValue.Number(fromNum)
-                toNum != null -> AnimValue.Number(toNum)
                 anim.by != null && fromNum != null -> {
+                    // by: from からの相対値（from + by）へ補間
                     AnimValue.Number(lerpNumber(fromNum, fromNum + (Numbers.parse(anim.by ?: "") ?: 0.0), mode))
                 }
+                fromNum != null -> AnimValue.Number(fromNum)
+                toNum != null -> AnimValue.Number(toNum)
                 else -> null
             }
             result?.let { phase to it }
