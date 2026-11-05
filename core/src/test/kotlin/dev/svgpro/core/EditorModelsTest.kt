@@ -43,6 +43,32 @@ class EditorModelsTest {
         assertEquals(2, Guide.Codec.decode("h10|x:bad|v5").size)
     }
 
+    @Test
+    fun guides_angled_roundtrip() {
+        val guides = listOf(
+            Guide.angled(45.0, Vec(10.0, 20.0)),
+            Guide.angled(-30.5, Vec(3.25, -4.0), locked = true, visible = false),
+            Guide(horizontal = true, pos = 1.0),
+        )
+        val encoded = Guide.Codec.encode(guides)
+        assertNotNull(encoded)
+        val decoded = Guide.Codec.decode(encoded)
+        assertEquals(guides, decoded)
+        // フラグ付き斜めガイドのデコード
+        val g = Guide.Codec.decode("a45@10,20LH").single()
+        assertTrue(g.isAngled)
+        assertEquals(45.0, g.angle)
+        assertEquals(Vec(10.0, 20.0), g.point)
+        assertTrue(g.locked)
+        assertFalse(g.visible)
+        // 幾何: 線 y=x への距離と投影
+        val g45 = Guide.angled(45.0, Vec(0.0, 0.0))
+        assertEquals(kotlin.math.sqrt(2.0) / 2.0, g45.distanceTo(Vec(1.0, 0.0)), 1e-9)
+        val proj = g45.project(Vec(1.0, 0.0))
+        assertEquals(0.5, proj.x, 1e-9)
+        assertEquals(0.5, proj.y, 1e-9)
+    }
+
     // ―――― グラデーション ――――
 
     private fun newGradient(radial: Boolean): Pair<Element, GradientModel> {

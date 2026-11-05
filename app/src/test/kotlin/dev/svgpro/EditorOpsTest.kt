@@ -344,6 +344,30 @@ class EditorOpsTest {
         assertEquals(2, e2.guides.size)
     }
 
+    @Test
+    fun guides_snap_to_angled() {
+        val e = newEditor()
+        // ズーム1へ固定（許容距離をuser単位8に揃える）
+        e.viewMatrix = dev.svgpro.core.geom.Matrix()
+        // 45°の斜めガイド（原点を通る = 直線 y=x）
+        e.addGuide(Guide.angled(45.0, dev.svgpro.core.geom.Vec(0.0, 0.0)))
+        e.snapToGuides = true
+        e.snapToObject = false
+        e.snapToGrid = false
+        // (10,12) は y=x 上の (11,11) へ投影される
+        val snapped = e.snapPoint(Vec(10.0, 12.0))
+        assertEquals(11.0, snapped.x, 0.001)
+        assertEquals(11.0, snapped.y, 0.001)
+        // 遠い点はスナップされない
+        val far = e.snapPoint(Vec(10.0, 40.0))
+        assertEquals(Vec(10.0, 40.0), far)
+        // 水平/垂直と斜めの併用: 軸スナップが近ければ軸が優先される
+        e.addGuide(Guide(horizontal = true, pos = 30.0))
+        val mixed = e.snapPoint(Vec(31.0, 29.0))
+        assertEquals(31.0, mixed.x, 0.001)
+        assertEquals(30.0, mixed.y, 0.001)
+    }
+
     // ―――― テキストパス ――――
 
     @Test

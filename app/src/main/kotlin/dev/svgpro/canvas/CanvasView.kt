@@ -217,10 +217,8 @@ class CanvasView @JvmOverloads constructor(
                 MotionEvent.ACTION_MOVE -> {
                     if (ev.pointerCount <= 1) {
                         val user = editor.screenToUser(Vec(ev.x.toDouble(), ev.y.toDouble()))
-                        if (guideDrag in editor.guides.indices) {
-                            val g = editor.guides[guideDrag]
-                            editor.moveGuideSilent(guideDrag, if (g.horizontal) user.y else user.x)
-                        }
+                        // 斜めガイドは角度を保ったまま点に追従、水平/垂直はposを更新
+                        editor.moveGuideToPoint(guideDrag, user)
                         invalidate()
                         return true
                     }
@@ -573,7 +571,22 @@ class CanvasView @JvmOverloads constructor(
         for (g in editor.guides) {
             if (!g.visible) continue
             val paint = if (g.locked) guideLockedPaint else guidePaint
-            if (g.horizontal) {
+            if (g.isAngled) {
+                // 任意角度のガイド: 線を画面座標へ変換し、画面全体を横切る長さで描く
+                val a = editor.userToScreen(g.anchor())
+                val b = editor.userToScreen(g.anchor() + g.direction() * 100.0)
+                var dx = b.x - a.x
+                var dy = b.y - a.y
+                val len = kotlin.math.sqrt(dx * dx + dy * dy)
+                if (len < 1e-6) continue
+                dx /= len
+                dy /= len
+                val ext = (width + height).toFloat()
+                canvas.drawLine(
+                    (a.x - dx * ext).toFloat(), (a.y - dy * ext).toFloat(),
+                    (a.x + dx * ext).toFloat(), (a.y + dy * ext).toFloat(), paint,
+                )
+            } else if (g.horizontal) {
                 val sy = editor.userToScreen(Vec(0.0, g.pos)).y
                 canvas.drawLine(0f, sy.toFloat(), width.toFloat(), sy.toFloat(), paint)
             } else {

@@ -1407,6 +1407,9 @@ class Editor {
     var curPolygonSides = 5
     var curStarPoints = 5
     var curTextSize = 24.0
+    var curFontFamily = "sans-serif"
+    var curFontWeight = "normal"
+    var curFontStyle = "normal"
 
     // カラースウォッチ（選択色を登録・再利用）
     val colorSwatches = mutableStateListOf(0xFF1473E6.toInt(), 0xFF22B573.toInt(), 0xFFF5A623.toInt(), 0xFFE03E3E.toInt(), 0xFF9B5DE5.toInt())
@@ -1429,6 +1432,10 @@ class Editor {
     var onZoomChanged: () -> Unit = {}
     var onDocumentReplaced: () -> Unit = {}
     var requestTextInput: ((Vec) -> Unit)? = null
+    /** 既存テキスト要素の編集要求（element → ）。ダブルタップ等から呼ばれる。 */
+    var requestTextEdit: ((Element) -> Unit)? = null
+    /** 要素のfont-family/weight/styleに応じたTypefaceを解決するコールバック（ViewModelから登録）。 */
+    var typefaceResolver: ((Element) -> android.graphics.Typeface)? = null
 
     // ―――― キャッシュ ――――
     var trace: Trace = Trace.build(doc)
@@ -1719,6 +1726,39 @@ class Editor {
     // ―――― スナップ ――――
 
     /**
+     * 点をガイド線へスナップする（水平/垂直＋任意角度の斜めガイド対応）。
+     * - 水平/垂直: 軸ごとに独立してスナップ（複数ガイドの交点へ寄せられる）
+     * - 斜め: 最も近い1線への垂線投影。軸スナップが起きた場合はそちらを優先
+     *
+     * スナップしなかった場合はnullを返す。includeLocked=falseでロック中のガイドを除外。
+     */
+    fun snapToGuideLines(p: Vec, tolUser: Double, includeLocked: Boolean): Vec? {
+        if (!snapToGuides || guides.isEmpty()) return null
+        var x = p.x
+        var y = p.y
+        var snapped = false
+        var bestAngled: Guide? = null
+        var bestD = tolUser
+        for (g in guides) {
+            if (!g.visible) continue
+            if (!includeLocked && g.locked) continue
+            if (g.isAngled) {
+                val d = g.distanceTo(p)
+                if (d < bestD) {
+                    bestD = d
+                    bestAngled = g
+                }
+            } else if (g.horizontal && abs(p.y - g.pos) < tolUser) {
+                y = g.pos; snapped = true
+            } else if (!g.horizontal && abs(p.x - g.pos) < tolUser) {
+                x = g.pos; snapped = true
+            }
+        }
+        if (snapped) return Vec(x, y)
+        return bestAngled?.project(p)
+    }
+
+    /**
      * 点をスナップする。
      * 優先度: ガイド > オブジェクト（コーナー/中心/ノード） > グリッド。
      * 画面px基準の許容距離を拡大率でuser距離へ変換するため、ズーム非依存の操作感。
@@ -1728,18 +1768,7 @@ class Editor {
         var result = p
 
         // ガイドスナップ（最優先・個別トグル）。ロックは「編集不可」でありスナップ対象からは除外しない
-        if (snapToGuides) {
-            var snapped = false
-            for (g in guides) {
-                if (!g.visible) continue
-                if (g.horizontal && abs(p.y - g.pos) < tolUser) {
-                    result = Vec(result.x, g.pos); snapped = true
-                } else if (!g.horizontal && abs(p.x - g.pos) < tolUser) {
-                    result = Vec(g.pos, result.y); snapped = true
-                }
-            }
-            if (snapped) return result
-        }
+        snapToGuideLines(p, tolUser, includeLocked = true)?.let { return it }
 
         if (snapToObject) {
             var bestDelta: Vec? = null
@@ -1817,8 +1846,41 @@ class Editor {
         onChanged()
     }
 
+    /**
+     * ドラッグ中のガイドを点へ移動（undo記録なし。確定時にsaveGuidesを呼ぶ）。
+     * 斜めガイドは角度を保ったまま線が点を通るように動く。水平/垂直はposを更新。
+     */
+    fun moveGuideToPoint(index: Int, p: Vec) {
+        if (index !in guides.indices) return
+        val g = guides[index]
+        if (!g.isAngled) {
+            moveGuideSilent(index, if (g.horizontal) p.y else p.x)
+            return
+        }
+        var np = p
+        if (snapGuidesToGrid) {
+            np = Vec(
+                kotlin.math.round(np.x / gridSize.coerceAtLeast(1e-6)) * gridSize,
+                kotlin.math.round(np.y / gridSize.coerceAtLeast(1e-6)) * gridSize,
+            )
+        }
+        guides[index] = g.copy(point = np)
+        onChanged()
+    }
+
     /** グリッドにスナップした位置でガイドを追加する */
     fun addGuideSnapped(g: Guide) {
+        if (g.isAngled) {
+            var pt = g.point ?: return addGuide(g)
+            if (snapGuidesToGrid) {
+                pt = Vec(
+                    kotlin.math.round(pt.x / gridSize.coerceAtLeast(1e-6)) * gridSize,
+                    kotlin.math.round(pt.y / gridSize.coerceAtLeast(1e-6)) * gridSize,
+                )
+            }
+            addGuide(g.copy(point = pt))
+            return
+        }
         var pos = g.pos
         if (snapGuidesToGrid) {
             pos = kotlin.math.round(pos / gridSize.coerceAtLeast(1e-6)) * gridSize
@@ -1843,7 +1905,16 @@ class Editor {
         var bestD = tolerancePx
         for ((i, g) in guides.withIndex()) {
             if (!g.visible || g.locked) continue
-            val d = if (g.horizontal) abs(userToScreen(Vec(0.0, g.pos)).y - screen.y)
+            val d = if (g.isAngled) {
+                // 線を画面座標へ変換し、画面点との直線距離を取る
+                val a = userToScreen(g.anchor())
+                val b = userToScreen(g.anchor() + g.direction())
+                val abx = b.x - a.x
+                val aby = b.y - a.y
+                val len = kotlin.math.sqrt(abx * abx + aby * aby)
+                if (len < 1e-9) Double.MAX_VALUE
+                else abs((screen.x - a.x) * aby - (screen.y - a.y) * abx) / len
+            } else if (g.horizontal) abs(userToScreen(Vec(0.0, g.pos)).y - screen.y)
             else abs(userToScreen(Vec(g.pos, 0.0)).x - screen.x)
             if (d < bestD) {
                 bestD = d
@@ -2396,6 +2467,80 @@ class Editor {
                 } else {
                     StyleUtil.setProperty(el, "dominant-baseline", value)
                 }
+            }
+        }
+    }
+
+    /** 単語間隔（word-spacing）を選択テキストへ適用 */
+    fun applyTextWordSpacingSelection(value: String) {
+        if (selection.isEmpty()) return
+        commit("word-spacing") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "word-spacing", value)
+            }
+        }
+    }
+
+    /** テキストの水平揃え（text-anchor: start/middle/end）を選択テキストへ適用 */
+    fun applyTextAnchorSelection(value: String) {
+        if (selection.isEmpty()) return
+        commit("text-anchor") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "text-anchor", value)
+            }
+        }
+    }
+
+    /** 現在の選択テキストの text-anchor を取得（未設定なら start） */
+    fun selectionTextAnchor(): String {
+        return selection.firstOrNull()?.let { v ->
+            StyleUtil.getProperty(v, "text-anchor") ?: "start"
+        } ?: "start"
+    }
+
+    /** 書字方向（writing-mode: horizontal-tb / vertical-lr / vertical-rl）を選択テキストへ適用 */
+    fun applyTextWritingModeSelection(value: String) {
+        if (selection.isEmpty()) return
+        commit("writing-mode") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (value.equals("horizontal-tb", true)) {
+                    StyleUtil.removeProperty(el, "writing-mode")
+                    el.setAttr("writing-mode", null)
+                } else {
+                    StyleUtil.setProperty(el, "writing-mode", value)
+                }
+            }
+        }
+    }
+
+    /** 現在の選択テキストの writing-mode を取得（未設定なら horizontal-tb） */
+    fun selectionWritingMode(): String {
+        return selection.firstOrNull()?.let { v ->
+            StyleUtil.getProperty(v, "writing-mode") ?: v.attr("writing-mode") ?: "horizontal-tb"
+        } ?: "horizontal-tb"
+    }
+
+    /** フォントウェイトを数値（100〜900 または normal/bold）で選択テキストへ適用 */
+    fun applyTextFontWeightSelection(weight: String) {
+        if (selection.isEmpty()) return
+        commit("font-weight") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "font-weight", weight)
+            }
+        }
+    }
+
+    /** テキスト塗り色を選択テキストへ適用 */
+    fun applyTextFillColorSelection(argb: Int) {
+        if (selection.isEmpty()) return
+        commit("text-fill") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "fill", dev.svgpro.core.model.Color.css(argb))
             }
         }
     }

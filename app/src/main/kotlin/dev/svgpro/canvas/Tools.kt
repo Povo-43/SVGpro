@@ -547,10 +547,15 @@ class ToolController(val editor: Editor) {
             }
             return
         }
-        // ダブルタップ: グループ選択（所属する最上位グループを選択）
+        // ダブルタップ: テキストならインプレース編集、それ以外はグループ選択
         if (doubleTap) {
             val hitInner = editor.trace.hitTest(user, 10.0 / editor.zoom)
             if (hitInner != null) {
+                if (hitInner.tag == "text") {
+                    editor.requestTextEdit?.invoke(hitInner)
+                    editor.notifyChanged()
+                    return
+                }
                 val before = editor.selection.toList()
                 editor.select(hitInner, additive = false)
                 editor.selectParent()
@@ -695,19 +700,9 @@ class ToolController(val editor: Editor) {
 
     private fun snapNodeDelta(delta: Vec): Vec = delta
 
-    /** 点をガイド線へスナップ（ガイド近傍の座標をガイド上へ寄せる） */
-    private fun snapToGuideLines(p: Vec): Vec {
-        if (!editor.snapToGuides || editor.guides.isEmpty()) return p
-        val tol = editor.snapTolerancePx / editor.zoom.coerceAtLeast(1e-6)
-        var x = p.x
-        var y = p.y
-        for (g in editor.guides) {
-            if (!g.visible || g.locked) continue
-            if (g.horizontal && abs(p.y - g.pos) < tol) y = g.pos
-            else if (!g.horizontal && abs(p.x - g.pos) < tol) x = g.pos
-        }
-        return Vec(x, y)
-    }
+    /** 点をガイド線へスナップ（ガイド近傍の座標をガイド上へ寄せる）。斜めガイド（任意角度）にも対応 */
+    private fun snapToGuideLines(p: Vec): Vec =
+        editor.snapToGuideLines(p, editor.snapTolerancePx / editor.zoom.coerceAtLeast(1e-6), includeLocked = false) ?: p
 
     private fun isShift(ev: MotionEvent): Boolean =
         (ev.metaState and android.view.KeyEvent.META_SHIFT_ON) != 0

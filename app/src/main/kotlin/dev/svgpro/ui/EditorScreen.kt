@@ -1,6 +1,5 @@
 package dev.svgpro.ui
 
-import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +15,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +40,7 @@ import dev.svgpro.core.model.Color
 import dev.svgpro.core.model.Paint
 import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.model.TextAttr
+import dev.svgpro.core.svg.Element
 import dev.svgpro.core.svg.TokenSource
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.invertSelection
@@ -60,10 +64,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
 
-    var pendingTextPos by remember { mutableStateOf<Vec?>(null) }
-    var showTextCreate by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
-    var showDocSettings by remember { mutableStateOf(false) }
     var showNewDoc by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
     var showPanel by remember { mutableStateOf<String?>(null) }
@@ -91,6 +92,11 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
+    var showDocSettings by remember { mutableStateOf(false) }
+
+    /** テキストインラインエディタのモード（null=非表示） */
+    val textEditState = remember { mutableStateOf<TextEditMode?>(null) }
+    var textEditMode by textEditState
 
     // 自動バックアップ（クラッシュ復元用）
     LaunchedEffect(Unit) {
@@ -119,8 +125,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             canvasView.invalidate()
         }
         editor.requestTextInput = { pos ->
-            pendingTextPos = pos
-            showTextCreate = true
+            textEditMode = TextEditMode.Create(pos)
+        }
+        editor.requestTextEdit = { el ->
+            textEditMode = TextEditMode.Edit(el, el.textContent())
         }
     }
     LaunchedEffect(Unit) {
@@ -232,35 +240,20 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 showMenu = showMenu,
                 onMenuDismiss = { showMenu = false },
                 onMenuOpen = { showMenu = true },
-                onUndo = { editor.undo() },
-                onRedo = { editor.redo() },
-                onSave = { doSave() },
-                onPanel = { name -> showPanel = if (showPanel == name) null else name },
-                activePanel = showPanel,
                 onNew = { showNewDoc = true },
                 onOpen = { openLauncher.launch(arrayOf("image/svg+xml", "text/plain", "text/xml", "*/*")) },
+                onSave = { doSave() },
                 onSaveAs = { createLauncher.launch(editor.documentName) },
-                onExportPng = { pngLauncher.launch("export.png") },
-                onReplaceColor = { showReplaceColor = true },
-                onTransform = { showTransform = true },
+                onPanel = { name -> showPanel = if (showPanel == name) null else name },
+                activePanel = showPanel,
+                onFontManager = { showFontManager = true },
+                onTextCreate = { textEditMode = TextEditMode.Create(Vec(editor.viewportW / 2, editor.viewportH / 2)) },
+                onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
+                onFontImport = { fontImportLauncher.launch(arrayOf("application/x-font-ttf", "application/x-font-otf", "font/ttf", "font/otf", "*/*")) },
                 onSettings = { showDocSettings = true },
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
-                onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
-                onFontImport = { fontImportLauncher.launch(arrayOf("application/x-font-ttf", "application/x-font-otf", "font/ttf", "font/otf", "*/*")) },
-                onShortcuts = { showShortcuts = true },
                 onCommandPalette = { showCommandPalette = true },
-                onShortcutCustomize = { showShortcutCustomize = true },
-                onParametricShape = { showParametricShape = true },
-                onChart = { showChart = true },
-                onMacroRecorder = { showMacroRecorder = true },
-                onComments = { showComments = true },
-                onNavigator = { showPanel = if (showPanel == "navigator") null else "navigator" },
-                onStylePreset = { showStylePreset = true },
-                onBrushPreset = { showBrushPreset = true },
-                onHistory = { showPanel = if (showPanel == "history") null else "history" },
-                onFontManager = { showFontManager = true },
-                onFontToPath = { showFontToPath = true },
             )
 
             // タブレット・デスクトップ向けPCライクメニューバー（拡張サイズ時のみ表示）
@@ -294,8 +287,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     onRulers = { editor.showRulers = !editor.showRulers; editor.onChanged() },
                     onOutline = { editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
                     onText = {
-                        pendingTextPos = null
-                        showTextCreate = true
+                        textEditMode = TextEditMode.Create(Vec(editor.viewportW / 2, editor.viewportH / 2))
                     },
                     onShortcuts = { showShortcuts = true },
                     onFontToPath = { showFontToPath = true },
@@ -406,21 +398,36 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             )
         }
 
-        if (showTextCreate) {
-            TextInputDialog(
-                title = "テキストを追加",
-                initial = "",
-                onDismiss = { showTextCreate = false; pendingTextPos = null },
-            ) { value ->
-                val pos = pendingTextPos
-                if (pos != null && value.isNotBlank()) {
-                    val el = TextAttr.newElement(value, pos, editor.curTextSize)
-                    StyleUtil.setProperty(el, "fill", Color.css((editor.curFill as? Paint.Solid)?.argb ?: 0xFF16202A.toInt()))
-                    editor.addElement(el, "text")
-                }
-                showTextCreate = false
-                pendingTextPos = null
-            }
+        val currentEditMode: TextEditMode? = textEditMode
+        if (currentEditMode != null) {
+            TextInputOverlay(
+                editor = editor,
+                mode = currentEditMode,
+                onDismiss = { textEditMode = null },
+                onConfirm = { value ->
+                    when (currentEditMode) {
+                        is TextEditMode.Create -> {
+                            if (value.isNotBlank()) {
+                                val pos = currentEditMode.pos
+                                val el = TextAttr.newElement(value, pos, editor.curTextSize, editor.curFontFamily)
+                                StyleUtil.setProperty(el, "fill", Color.css((editor.curFill as? Paint.Solid)?.argb ?: 0xFF16202A.toInt()))
+                                StyleUtil.setProperty(el, "font-weight", editor.curFontWeight)
+                                StyleUtil.setProperty(el, "font-style", editor.curFontStyle)
+                                editor.addElement(el, "text")
+                            }
+                        }
+                        is TextEditMode.Edit -> {
+                            if (currentEditMode.el.tag == "text") {
+                                editor.commit("text edit") { batch ->
+                                    batch.touch(currentEditMode.el)
+                                    currentEditMode.el.setTextContent(value)
+                                }
+                            }
+                        }
+                    }
+                    textEditMode = null
+                },
+            )
         }
 
         if (showTransform) {
@@ -574,10 +581,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 }
 
 /** キーボードショートカット */
-private fun handleKey(editor: Editor, keyCode: Int, event: KeyEvent, save: () -> Unit): Boolean {
+private fun handleKey(editor: Editor, keyCode: Int, event: android.view.KeyEvent, save: () -> Unit): Boolean {
     val meta = event.metaState
-    val ctrl = (meta and KeyEvent.META_CTRL_ON) != 0
-    val shift = (meta and KeyEvent.META_SHIFT_ON) != 0
+    val ctrl = (meta and android.view.KeyEvent.META_CTRL_ON) != 0
+    val shift = (meta and android.view.KeyEvent.META_SHIFT_ON) != 0
     // カスタムショートカット（Ctrl 基本）。editor.customKeyBindings のアクション名->keyCode マップで上書き可能。
     val customAction = editor.customKeyBindings.entries.firstOrNull { it.value == keyCode }?.key
     if (ctrl && customAction != null) {
@@ -605,40 +612,40 @@ private fun handleKey(editor: Editor, keyCode: Int, event: KeyEvent, save: () ->
         }
     }
     return when {
-        ctrl && keyCode == KeyEvent.KEYCODE_Z && !shift -> { editor.undo(); true }
-        (ctrl && keyCode == KeyEvent.KEYCODE_Z && shift) || (ctrl && keyCode == KeyEvent.KEYCODE_Y) -> { editor.redo(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_S -> { save(); true }
-        keyCode == KeyEvent.KEYCODE_DEL || keyCode == KeyEvent.KEYCODE_FORWARD_DEL -> { editor.deleteSelection(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_C -> { editor.copySelection(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_X -> { editor.cutSelection(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_V -> { editor.pasteFromClipboard(inPlace = false); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_D -> { editor.duplicateSelection(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_G && !shift -> { editor.groupSelection(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_G && shift -> { editor.ungroupSelection(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_A -> {
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_Z && !shift -> { editor.undo(); true }
+        (ctrl && keyCode == android.view.KeyEvent.KEYCODE_Z && shift) || (ctrl && keyCode == android.view.KeyEvent.KEYCODE_Y) -> { editor.redo(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_S -> { save(); true }
+        keyCode == android.view.KeyEvent.KEYCODE_DEL || keyCode == android.view.KeyEvent.KEYCODE_FORWARD_DEL -> { editor.deleteSelection(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_C -> { editor.copySelection(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_X -> { editor.cutSelection(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_V -> { editor.pasteFromClipboard(inPlace = false); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_D -> { editor.duplicateSelection(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_G && !shift -> { editor.groupSelection(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_G && shift -> { editor.ungroupSelection(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_A -> {
             editor.selectAllInBox(
                 Bounds(Double.NEGATIVE_INFINITY, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY),
                 additive = false,
             )
             true
         }
-        ctrl && keyCode == KeyEvent.KEYCODE_J -> { editor.transformAgain(); true }
-        ctrl && keyCode == KeyEvent.KEYCODE_R -> { editor.showRulers = !editor.showRulers; editor.onChanged(); true }
-        keyCode == KeyEvent.KEYCODE_V && !ctrl -> { editor.tool = ToolType.SELECT; true }
-        keyCode == KeyEvent.KEYCODE_A && !ctrl -> { editor.tool = ToolType.NODE; true }
-        keyCode == KeyEvent.KEYCODE_P && !ctrl -> { editor.tool = ToolType.PEN; true }
-        keyCode == KeyEvent.KEYCODE_N && !ctrl -> { editor.tool = ToolType.FREEHAND; true }
-        keyCode == KeyEvent.KEYCODE_R && !ctrl -> { editor.tool = ToolType.RECT; true }
-        keyCode == KeyEvent.KEYCODE_O && !ctrl -> { editor.tool = ToolType.ELLIPSE; true }
-        keyCode == KeyEvent.KEYCODE_L && !ctrl -> { editor.tool = ToolType.LINE; true }
-        keyCode == KeyEvent.KEYCODE_T && !ctrl -> { editor.tool = ToolType.TEXT; true }
-        keyCode == KeyEvent.KEYCODE_I && !ctrl -> { editor.tool = ToolType.EYEDROPPER; true }
-        keyCode == KeyEvent.KEYCODE_H && !ctrl -> { editor.tool = ToolType.HAND; true }
-        keyCode == KeyEvent.KEYCODE_G && !ctrl -> { editor.tool = ToolType.GRADIENT; true }
-        keyCode == KeyEvent.KEYCODE_DPAD_LEFT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) -10.0 else -1.0, 0.0); true }
-        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) 10.0 else 1.0, 0.0); true }
-        keyCode == KeyEvent.KEYCODE_DPAD_UP && editor.selection.isNotEmpty() -> { nudge(editor, 0.0, if (shift) -10.0 else -1.0); true }
-        keyCode == KeyEvent.KEYCODE_DPAD_DOWN && editor.selection.isNotEmpty() -> { nudge(editor, 0.0, if (shift) 10.0 else 1.0); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_J -> { editor.transformAgain(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_R -> { editor.showRulers = !editor.showRulers; editor.onChanged(); true }
+        keyCode == android.view.KeyEvent.KEYCODE_V && !ctrl -> { editor.tool = ToolType.SELECT; true }
+        keyCode == android.view.KeyEvent.KEYCODE_A && !ctrl -> { editor.tool = ToolType.NODE; true }
+        keyCode == android.view.KeyEvent.KEYCODE_P && !ctrl -> { editor.tool = ToolType.PEN; true }
+        keyCode == android.view.KeyEvent.KEYCODE_N && !ctrl -> { editor.tool = ToolType.FREEHAND; true }
+        keyCode == android.view.KeyEvent.KEYCODE_R && !ctrl -> { editor.tool = ToolType.RECT; true }
+        keyCode == android.view.KeyEvent.KEYCODE_O && !ctrl -> { editor.tool = ToolType.ELLIPSE; true }
+        keyCode == android.view.KeyEvent.KEYCODE_L && !ctrl -> { editor.tool = ToolType.LINE; true }
+        keyCode == android.view.KeyEvent.KEYCODE_T && !ctrl -> { editor.tool = ToolType.TEXT; true }
+        keyCode == android.view.KeyEvent.KEYCODE_I && !ctrl -> { editor.tool = ToolType.EYEDROPPER; true }
+        keyCode == android.view.KeyEvent.KEYCODE_H && !ctrl -> { editor.tool = ToolType.HAND; true }
+        keyCode == android.view.KeyEvent.KEYCODE_G && !ctrl -> { editor.tool = ToolType.GRADIENT; true }
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) -10.0 else -1.0, 0.0); true }
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) 10.0 else 1.0, 0.0); true }
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP && editor.selection.isNotEmpty() -> { nudge(editor, 0.0, if (shift) -10.0 else -1.0); true }
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN && editor.selection.isNotEmpty() -> { nudge(editor, 0.0, if (shift) 10.0 else 1.0); true }
         else -> false
     }
 }
@@ -662,33 +669,18 @@ private fun TopBar(
     onMenuDismiss: () -> Unit,
     onNew: () -> Unit,
     onOpen: () -> Unit,
+    onSave: () -> Unit,
     onSaveAs: () -> Unit,
-    onExportPng: () -> Unit,
-    onReplaceColor: () -> Unit,
-    onTransform: () -> Unit,
+    onPanel: (String) -> Unit,
+    activePanel: String?,
+    onFontManager: () -> Unit,
+    onTextCreate: () -> Unit,
+    onImageImport: () -> Unit,
+    onFontImport: () -> Unit,
     onSettings: () -> Unit,
     onSvgSource: () -> Unit,
     onSvgOptimize: () -> Unit,
-    onImageImport: () -> Unit,
-    onFontImport: () -> Unit,
-    onShortcuts: () -> Unit,
     onCommandPalette: () -> Unit,
-    onShortcutCustomize: () -> Unit,
-    onParametricShape: () -> Unit,
-    onChart: () -> Unit,
-    onMacroRecorder: () -> Unit,
-    onComments: () -> Unit,
-    onNavigator: () -> Unit,
-    onStylePreset: () -> Unit,
-    onBrushPreset: () -> Unit,
-    onHistory: () -> Unit,
-    onFontManager: () -> Unit,
-    onFontToPath: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onSave: () -> Unit,
-    onPanel: (String) -> Unit,
-    activePanel: String?,
 ) {
     // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
     // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
@@ -718,8 +710,10 @@ private fun TopBar(
                 DropdownMenu(
                     expanded = showMenu,
                     onDismissRequest = onMenuDismiss,
-                    modifier = Modifier.width(220.dp),
+                    modifier = Modifier.width(260.dp),
                 ) {
+                    // ファイル操作（上位の直接アクセスはトップバー右側アイコンへ）
+                    SectionTitle("ファイル")
                     DropdownMenuItem(
                         text = { Text("新規ドキュメント") },
                         leadingIcon = { Icon(AppIcons.Plus, null, modifier = Modifier.size(18.dp)) },
@@ -734,45 +728,76 @@ private fun TopBar(
                     )
                     DropdownMenuItem(text = { Text("別名で保存…") }, onClick = { onMenuDismiss(); onSaveAs() })
                     HorizontalDivider()
+                    // 編集
+                    SectionTitle("編集")
                     DropdownMenuItem(
-                        text = { Text("コピー") },
+                        text = { Text("元に戻す (Ctrl+Z)") },
+                        leadingIcon = { Icon(AppIcons.Undo, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.undoStack.canUndo,
+                        onClick = { onMenuDismiss(); editor.undo() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("やり直す (Ctrl+Shift+Z / Ctrl+Y)") },
+                        leadingIcon = { Icon(AppIcons.Redo, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.undoStack.canRedo,
+                        onClick = { onMenuDismiss(); editor.redo() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("コピー (Ctrl+C)") },
                         leadingIcon = { Icon(AppIcons.ContentCopy, null, modifier = Modifier.size(18.dp)) },
                         enabled = editor.selection.isNotEmpty(),
                         onClick = { onMenuDismiss(); editor.copySelection() },
                     )
                     DropdownMenuItem(
-                        text = { Text("カット") },
+                        text = { Text("カット (Ctrl+X)") },
                         leadingIcon = { Icon(AppIcons.ContentCut, null, modifier = Modifier.size(18.dp)) },
                         enabled = editor.selection.isNotEmpty(),
                         onClick = { onMenuDismiss(); editor.cutSelection() },
                     )
                     DropdownMenuItem(
-                        text = { Text("ペースト") },
+                        text = { Text("ペースト (Ctrl+V)") },
                         leadingIcon = { Icon(AppIcons.ContentPaste, null, modifier = Modifier.size(18.dp)) },
                         enabled = editor.clipboard.isNotEmpty(),
                         onClick = { onMenuDismiss(); editor.pasteFromClipboard(inPlace = false) },
                     )
-                    HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text("PNG書き出し…") },
-                        leadingIcon = { Icon(AppIcons.Save, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onExportPng() },
-                    )
-                    DropdownMenuItem(text = { Text("数値変形…") }, onClick = { onMenuDismiss(); onTransform() })
-                    DropdownMenuItem(text = { Text("色の一括置換…") }, onClick = { onMenuDismiss(); onReplaceColor() })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("ドキュメント設定…") }, onClick = { onMenuDismiss(); onSettings() })
-                    DropdownMenuItem(text = { Text("ドキュメント複製") }, onClick = { onMenuDismiss(); editor.duplicateDocument() })
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("SVGソースコード編集…") },
-                        leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onSvgSource() },
+                        text = { Text("削除 (Delete)") },
+                        leadingIcon = { Icon(AppIcons.Delete, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.selection.isNotEmpty(),
+                        onClick = { onMenuDismiss(); editor.deleteSelection() },
                     )
                     DropdownMenuItem(
-                        text = { Text("SVG最適化・検証…") },
-                        leadingIcon = { Icon(AppIcons.PathOps, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onSvgOptimize() },
+                        text = { Text("複製 (Ctrl+D)") },
+                        leadingIcon = { Icon(AppIcons.Group, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.selection.isNotEmpty(),
+                        onClick = { onMenuDismiss(); editor.duplicateSelection() },
+                    )
+                    HorizontalDivider()
+                    // 表示
+                    SectionTitle("表示")
+                    DropdownMenuItem(
+                        text = { Text("ルーラー表示 (Ctrl+R)") },
+                        leadingIcon = { Icon(AppIcons.Ruler, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); editor.showRulers = !editor.showRulers; editor.onChanged() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("グリッド表示") },
+                        leadingIcon = { Icon(AppIcons.Grid, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); editor.showGrid = !editor.showGrid; editor.onChanged() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("アウトライン表示") },
+                        leadingIcon = { Icon(AppIcons.Outline, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
+                    )
+                    HorizontalDivider()
+                    // ツール・その他
+                    SectionTitle("ツール・その他")
+                    DropdownMenuItem(
+                        text = { Text("テキストを追加 (T)") },
+                        leadingIcon = { Icon(AppIcons.TextTool, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onTextCreate() },
                     )
                     DropdownMenuItem(
                         text = { Text("画像をインポート…") },
@@ -785,76 +810,46 @@ private fun TopBar(
                         onClick = { onMenuDismiss(); onFontImport() },
                     )
                     DropdownMenuItem(
-                        text = { Text("ショートカット一覧") },
-                        leadingIcon = { Icon(AppIcons.Shortcuts, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onShortcuts() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("ショートカットカスタマイズ…") },
-                        leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onShortcutCustomize() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("パラメトリック図形生成…") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onParametricShape() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("チャート/グラフ生成…") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onChart() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("コメント/注釈…") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onComments() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("ナビゲーター") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onNavigator() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("スタイルプリセット…") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onStylePreset() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("ブラシプリセット…") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onBrushPreset() },
-                    )
-                    DropdownMenuItem(
                         text = { Text("フォントマネージャー…") },
                         leadingIcon = { Icon(AppIcons.Font, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onFontManager() },
                     )
+                    HorizontalDivider()
+                    // ドキュメント
+                    SectionTitle("ドキュメント")
+                    DropdownMenuItem(text = { Text("ドキュメント設定…") }, onClick = { onMenuDismiss(); onSettings() })
                     DropdownMenuItem(
-                        text = { Text("選択テキストをパス化") },
-                        leadingIcon = { Icon(AppIcons.Path, null, modifier = Modifier.size(18.dp)) },
-                        enabled = editor.selection.any { it.tag == "text" },
-                        onClick = { onMenuDismiss(); onFontToPath() },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("マクロ記録…") },
-                        leadingIcon = { Icon(AppIcons.More, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onMacroRecorder() },
-                    )
-                    DropdownMenuItem(
-                        text = { if (editor.isEditable()) "閲覧専用モードにする" else "編集モードにする" },
-                        leadingIcon = { Icon(AppIcons.LockIcon, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); editor.setViewOnlyMode(!editor.isEditable()) },
+                        text = { Text("ドキュメント複製") },
+                        onClick = { onMenuDismiss(); editor.duplicateDocument() },
                     )
                     HorizontalDivider()
+                    // 上級
+                    SectionTitle("上級")
                     DropdownMenuItem(
-                        text = { if (animationMode) "通常モードに戻る" else "アニメーションモードにする" },
-                        leadingIcon = { Icon(AppIcons.StopIcon, null, modifier = Modifier.size(18.dp)) },
-                        onClick = { onMenuDismiss(); onAnimationModeToggle() },
+                        text = { Text("SVGソースコード編集…") },
+                        leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onSvgSource() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("SVG最適化・検証…") },
+                        leadingIcon = { Icon(AppIcons.PathOps, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onSvgOptimize() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },
                         leadingIcon = { Icon(AppIcons.Search, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onCommandPalette() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { if (editor.isEditable()) "閲覧専用モードにする" else "編集モードにする" },
+                        leadingIcon = { Icon(AppIcons.LockIcon, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); editor.setViewOnlyMode(!editor.isEditable()) },
+                    )
+                    DropdownMenuItem(
+                        text = { if (animationMode) "通常モードに戻る" else "アニメーションモードにする" },
+                        leadingIcon = { Icon(AppIcons.StopIcon, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onAnimationModeToggle() },
                     )
                 }
             }
@@ -878,8 +873,21 @@ private fun TopBar(
                 }
             }
 
-            BarIconButton(AppIcons.Undo, "元に戻す", description = "直前の操作を元に戻します（Ctrl+Z）", enabled = editor.undoStack.canUndo, onClick = onUndo)
-            BarIconButton(AppIcons.Redo, "やり直す", description = "元に戻した操作をやり直します（Ctrl+Shift+Z）", enabled = editor.undoStack.canRedo, onClick = onRedo)
+            // ―――― よく使う操作を直接アイコンでアクセス ――――
+            BarIconButton(AppIcons.Plus, "新規ドキュメント", description = "新しいSVGドキュメントを作成します", onClick = onNew)
+            BarIconButton(AppIcons.MenuIcon, "開く", description = "SVGファイルを開きます", onClick = onOpen)
+            BarDivider()
+            BarIconButton(AppIcons.Undo, "元に戻す", description = "直前の操作を元に戻します（Ctrl+Z）", enabled = editor.undoStack.canUndo, onClick = { editor.undo() })
+            BarIconButton(AppIcons.Redo, "やり直す", description = "元に戻した操作をやり直します（Ctrl+Shift+Z）", enabled = editor.undoStack.canRedo, onClick = { editor.redo() })
+            BarDivider()
+            BarIconButton(AppIcons.ContentCopy, "コピー", description = "選択をコピーします（Ctrl+C）", enabled = editor.selection.isNotEmpty(), onClick = { editor.copySelection() })
+            BarIconButton(AppIcons.ContentCut, "カット", description = "選択をカットします（Ctrl+X）", enabled = editor.selection.isNotEmpty(), onClick = { editor.cutSelection() })
+            BarIconButton(AppIcons.ContentPaste, "ペースト", description = "クリップボードをペーストします（Ctrl+V）", enabled = editor.clipboard.isNotEmpty(), onClick = { editor.pasteFromClipboard(inPlace = false) })
+            BarDivider()
+            BarIconButton(AppIcons.Delete, "削除", description = "選択を削除します（Delete）", enabled = editor.selection.isNotEmpty(), onClick = { editor.deleteSelection() })
+            BarIconButton(AppIcons.Group, "複製", description = "選択を複製します（Ctrl+D）", enabled = editor.selection.isNotEmpty(), onClick = { editor.duplicateSelection() })
+            BarDivider()
+            BarIconButton(AppIcons.Save, "保存", description = "現在のドキュメントを上書き保存します（Ctrl+S）", onClick = onSave)
             BarDivider()
             BarIconButton(
                 AppIcons.Layers, "レイヤー",
@@ -888,16 +896,14 @@ private fun TopBar(
             )
             BarIconButton(
                 AppIcons.Palette, "プロパティ",
-                description = "選択オブジェクトの塗り・線・エフェクト等を編集",
+                description = "選択オブジェクトの塗り・線・テキスト等を編集",
                 active = activePanel == "props", onClick = { onPanel("props") },
             )
             BarIconButton(
                 AppIcons.Edit, "履歴",
                 description = "操作履歴パネルを表示",
-                active = activePanel == "history", onClick = { onPanel("history"); onHistory() },
+                active = activePanel == "history", onClick = { onPanel("history") },
             )
-            BarDivider()
-            BarIconButton(AppIcons.Save, "保存", description = "現在のドキュメントを上書き保存します（Ctrl+S）", onClick = onSave)
         }
         // 上部バーとキャンバスの間のヘアライン
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -1824,4 +1830,75 @@ fun loadSwatches(editor: Editor, uri: android.net.Uri) {
     } catch (e: Exception) {
         e.printStackTrace()
     }
+}
+
+/** テキストインラインエディタのモード。 */
+sealed interface TextEditMode {
+    /** 新規作成：クリック位置にテキストを作成 */
+    data class Create(val pos: Vec) : TextEditMode
+    /** 既存テキスト編集：選択中の text 要素を編集 */
+    data class Edit(val el: Element, val initialText: String) : TextEditMode
+}
+
+/**
+ * キャンバス上に重ねるインラインテキスト入力フィールド。
+ * ポップアップダイアログを出さず、キャンバス上のクリック位置（または既存テキスト位置）
+ * に直接表示して Enter で確定・Escape でキャンセルできる。
+ */
+@Composable
+private fun TextInputOverlay(
+    editor: Editor,
+    mode: TextEditMode,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    // 表示位置を画面座標に変換
+    val screenPos = remember(mode) {
+        when (mode) {
+            is TextEditMode.Create -> editor.userToScreen(mode.pos)
+            is TextEditMode.Edit -> {
+                val x = dev.svgpro.core.util.Numbers.parse(mode.el.attr("x")) ?: 0.0
+                val y = dev.svgpro.core.util.Numbers.parse(mode.el.attr("y")) ?: 0.0
+                editor.userToScreen(Vec(x, y))
+            }
+        }
+    }
+
+    val initialText = when (mode) {
+        is TextEditMode.Edit -> mode.initialText
+        else -> ""
+    }
+    var text by remember(initialText) { mutableStateOf(initialText) }
+
+    // モード変更時にテキストをリセット
+    LaunchedEffect(mode) {
+        text = initialText
+    }
+
+    Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .offset(x = screenPos.x.dp, y = screenPos.y.dp)
+                    .width(280.dp)
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = false,
+                    maxLines = 6,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { onDismiss() }) { Text("キャンセル") }
+                    Button(onClick = { onConfirm(text) }) { Text("OK") }
+                }
+            }
+        }
+
 }

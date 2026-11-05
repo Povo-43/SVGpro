@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -751,15 +753,51 @@ fun DocumentSettingsDialog(
                 }
                 // ガイド一覧（ロック・表示・削除）
                 Text("ガイド (${editor.guides.size})", style = MaterialTheme.typography.labelMedium)
+                // 斜めガイド（任意角度の基準線）の追加
+                var agAngle by remember { mutableStateOf("45") }
+                var agX by remember { mutableStateOf("0") }
+                var agY by remember { mutableStateOf("0") }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedTextField(
+                        value = agAngle, onValueChange = { agAngle = it },
+                        label = { Text("角度") },
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.width(72.dp), singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = agX, onValueChange = { agX = it },
+                        label = { Text("X") },
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.width(72.dp), singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = agY, onValueChange = { agY = it },
+                        label = { Text("Y") },
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.width(72.dp), singleLine = true,
+                    )
+                    TextButton(onClick = {
+                        val a = dev.svgpro.core.util.Numbers.parse(agAngle)
+                        val x = dev.svgpro.core.util.Numbers.parse(agX)
+                        val y = dev.svgpro.core.util.Numbers.parse(agY)
+                        if (a != null && x != null && y != null) {
+                            editor.addGuideSnapped(dev.svgpro.core.model.Guide.angled(a, dev.svgpro.core.geom.Vec(x, y)))
+                        }
+                    }) { Text("斜めを追加", style = MaterialTheme.typography.labelSmall) }
+                }
                 if (editor.guides.isEmpty()) {
                     Text("ルーラーからドラッグしてガイドを作成できます", style = MaterialTheme.typography.bodySmall)
                 }
                 editor.guides.forEachIndexed { i, g ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            if (g.horizontal) "H ${dev.svgpro.core.util.Numbers.format(g.pos, 1)}" else "V ${dev.svgpro.core.util.Numbers.format(g.pos, 1)}",
+                            when {
+                                g.isAngled -> "A ${dev.svgpro.core.util.Numbers.format(g.angle ?: 0.0, 1)}° @(${dev.svgpro.core.util.Numbers.format(g.point?.x ?: 0.0, 1)}, ${dev.svgpro.core.util.Numbers.format(g.point?.y ?: 0.0, 1)})"
+                                g.horizontal -> "H ${dev.svgpro.core.util.Numbers.format(g.pos, 1)}"
+                                else -> "V ${dev.svgpro.core.util.Numbers.format(g.pos, 1)}"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.width(72.dp),
+                            modifier = Modifier.weight(1f),
                         )
                         Text(
                             if (g.locked) "ロック中" else "編集可",
@@ -1542,7 +1580,8 @@ fun FontManagerDialog(
 
     fun loadSelectedFont() {
         val uri = fontUri ?: return
-        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
+        val context = dev.svgpro.AppContextHolder.get() ?: return
+        val resolver = context.contentResolver
         val fam = newFamily.takeIf { it.isNotBlank() }
         // URIからファイルパスを取得（file:スキームなら直接パス、それ以外はコピーしてキャッシュ）
         var filePath: String? = null
@@ -1552,7 +1591,7 @@ fun FontManagerDialog(
             // その他のURI（content://等）は一時ファイルにコピー
             try {
                 resolver.openInputStream(uri)?.use { input ->
-                    val cache = java.io.File(dev.svgpro.AppContextHolder.get()!!.cacheDir, "fonts")
+                    val cache = java.io.File(context.cacheDir, "fonts")
                     cache.mkdirs()
                     val outFile = java.io.File(cache, System.currentTimeMillis().toString() + ".font")
                     java.io.FileOutputStream(outFile).use { output ->
@@ -1621,22 +1660,28 @@ fun FontManagerDialog(
                 } else {
                     LazyColumn(modifier = Modifier.weight(1f)) {
                         itemsIndexed(vm.loadedFontFamilies) { _, family ->
+                            val typeface: Typeface? = remember(family) {
+                                val face = vm.loadedFonts.firstOrNull { it.family == family }
+                                face?.filePath?.let { Typeface.createFromFile(it) } ?: null
+                            }
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                // プレビュー（Aa サンプル）
+                                // プレビュー（そのフォントで AaBbCc サンプル）
                                 Box(
                                     Modifier
-                                        .size(32.dp)
+                                        .size(48.dp)
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant)
                                         .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp)),
                                 ) {
                                     Text(
                                         "Aa",
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontFamily = if (typeface != null) FontFamily(typeface) else FontFamily.Default,
+                                        ),
                                         color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.align(Alignment.Center),
                                     )

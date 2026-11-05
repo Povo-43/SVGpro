@@ -444,7 +444,7 @@ class SvgRenderer {
         val y = (dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0).toFloat()
         val fontSize = (dev.svgpro.core.util.Numbers.parse(StyleUtil.getProperty(el, "font-size")) ?: 16.0).toFloat()
         textPaint.textSize = fontSize
-        textPaint.typeface = typeface(el)
+        textPaint.typeface = typeface(el, editor)
         val anchor = StyleUtil.getProperty(el, "text-anchor")
         when (anchor) {
             "middle" -> textPaint.textAlign = Paint.Align.CENTER
@@ -458,64 +458,85 @@ class SvgRenderer {
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             textPaint.letterSpacing = (ls / fontSize.coerceAtLeast(1f)).toFloat()
         }
-        // 複数行（tspanによる折返しは簡易対応: text全体を1行で描画）
+        // 複数行対応：\n で分割し、各行を line-height 間隔で描画
         val writingMode = StyleUtil.getProperty(el, "writing-mode") ?: el.attr("writing-mode") ?: ""
         val isVertical = writingMode.equals("vertical-lr", true) || writingMode.equals("vertical-rl", true)
+        val lineHeight = fontSize * lineHeightFactor(el).toFloat()
         if (isVertical) {
             var cy = y
-            val lineHeight = fontSize * lineHeightFactor(el).toFloat()
             for (ch in content) {
                 canvas.drawText(ch.toString(), x, cy, textPaint)
                 cy += lineHeight
             }
         } else {
+            val lines = content.split("\n")
             val textW = dev.svgpro.core.util.Numbers.parse(el.attr("width")) ?: 0.0
-            if (textW > 0.0) {
-                // 単語単位の自動折り返し（テキストボックス）
-                var cy = y
-                val words = content.split(" ")
-                var line = ""
-                for (w in words) {
-                    val trial = if (line.isEmpty()) w else line + " " + w
-                    if (textPaint.measureText(trial) > textW.toFloat()) {
-                        canvas.drawText(line, x, cy, textPaint)
-                        cy += fontSize * lineHeightFactor(el).toFloat()
-                        line = w
-                    } else {
-                        line = trial
-                    }
+            var cy = y
+            for ((li, line) in lines.withIndex()) {
+                if (line.isEmpty() && li < lines.size - 1) {
+                    cy += lineHeight
+                    continue
                 }
-                if (line.isNotEmpty()) canvas.drawText(line, x, cy, textPaint)
-            } else {
-                canvas.drawText(content, x, y, textPaint)
+                if (textW > 0.0) {
+                    // 単語単位の自動折り返し（テキストボックス）
+                    val words = line.split(" ")
+                    var cur = ""
+                    for (w in words) {
+                        val trial = if (cur.isEmpty()) w else cur + " " + w
+                        if (textPaint.measureText(trial) > textW.toFloat()) {
+                            if (cur.isNotEmpty()) canvas.drawText(cur, x, cy, textPaint)
+                            cy += lineHeight
+                            cur = w
+                        } else {
+                            cur = trial
+                        }
+                    }
+                    if (cur.isNotEmpty()) canvas.drawText(cur, x, cy, textPaint)
+                } else {
+                    canvas.drawText(line, x, cy, textPaint)
+                }
+                cy += lineHeight
             }
         }
-        // テキスト装飾（下線・取り消し線）
+        // テキスト装飾（下線・取り消し線）。複数行の場合は各行に描画
         val decoration = StyleUtil.getProperty(el, "text-decoration")
         if (decoration != null && decoration.isNotEmpty()) {
-            val textWidth = textPaint.measureText(content)
-            val lineX = when (anchor) {
-                "middle" -> x - textWidth / 2
-                "end" -> x - textWidth
-                else -> x
-            }
-            val lineRight = lineX + textWidth
+            val lines = content.split("\n")
+            val lineHeight = fontSize * lineHeightFactor(el).toFloat()
             var decoList = decoration.split(Regex("\\s+")).filter { it.isNotEmpty() }
             val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 setColor(textPaint.color)
                 strokeWidth = (fontSize * 0.1).toFloat().coerceAtLeast(1f)
                 style = Paint.Style.STROKE
             }
-            if ("underline" in decoList) {
-                canvas.drawLine(lineX, y + fontSize * 0.15f, lineRight, y + fontSize * 0.15f, linePaint)
-            }
-            if ("line-through" in decoList) {
-                canvas.drawLine(lineX, y - fontSize * 0.35f, lineRight, y - fontSize * 0.35f, linePaint)
+            var cy = y
+            for ((li, line) in lines.withIndex()) {
+                if (line.isEmpty() && li < lines.size - 1) {
+                    cy += lineHeight
+                    continue
+                }
+                val textWidth = textPaint.measureText(line)
+                val lineX = when (anchor) {
+                    "middle" -> x - textWidth / 2
+                    "end" -> x - textWidth
+                    else -> x
+                }
+                val lineRight = lineX + textWidth
+                if ("underline" in decoList) {
+                    canvas.drawLine(lineX, cy + fontSize * 0.15f, lineRight, cy + fontSize * 0.15f, linePaint)
+                }
+                if ("line-through" in decoList) {
+                    canvas.drawLine(lineX, cy - fontSize * 0.35f, lineRight, cy - fontSize * 0.35f, linePaint)
+                }
+                cy += lineHeight
             }
         }
     }
 
-    private fun typeface(el: Element): android.graphics.Typeface {
+    private fun typeface(el: Element, editor: Editor): android.graphics.Typeface {
+        // ViewModel経由で登録されたカスタムフォントレジストリを最優先する
+        editor.typefaceResolver?.let { return it(el) }
+
         val family = StyleUtil.getProperty(el, "font-family") ?: "sans-serif"
         val weight = StyleUtil.getProperty(el, "font-weight") ?: "normal"
         val style = StyleUtil.getProperty(el, "font-style") ?: "normal"
@@ -559,7 +580,7 @@ class SvgRenderer {
         if (total <= 0.0) return
         val fontSize = (dev.svgpro.core.util.Numbers.parse(StyleUtil.getProperty(el, "font-size")) ?: 16.0).toFloat()
         textPaint.textSize = fontSize
-        textPaint.typeface = typeface(el)
+        textPaint.typeface = typeface(el, editor)
         val color = dev.svgpro.core.model.Color.parse(StyleUtil.getProperty(el, "fill")) ?: Color.BLACK
         textPaint.color = color
         textPaint.textAlign = Paint.Align.LEFT

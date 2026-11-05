@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
@@ -44,6 +45,10 @@ class EditorViewModel : ViewModel() {
         }
         editor.textToPathProvider = { el ->
             textToPathData(el)
+        }
+        // カスタムフォント対応のTypeface解決をレンダラー側へ提供
+        editor.typefaceResolver = { el ->
+            resolveTypeface(el)
         }
     }
 
@@ -108,8 +113,8 @@ class EditorViewModel : ViewModel() {
     /** 読み込み済みカスタムフォント: family名 → Typeface */
     private val customFonts = mutableMapOf<String, Typeface>()
 
-    /** 読み込み済みフォント一覧（FontFaceメタデータ） */
-    val loadedFonts: MutableList<FontFace> = mutableListOf()
+    /** 読み込み済みフォント一覧（FontFaceメタデータ）。observable なので追加/削除でUIが再構成される。 */
+    val loadedFonts: MutableList<FontFace> = mutableStateListOf()
 
     /** 読み込み済みフォントのファミリ名一覧 */
     val loadedFontFamilies: List<String>
@@ -203,6 +208,7 @@ class EditorViewModel : ViewModel() {
         if (content.isEmpty()) return null
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         paint.textSize = (dev.svgpro.core.util.Numbers.parse(dev.svgpro.core.model.StyleUtil.getProperty(el, "font-size")) ?: 16.0).toFloat()
+        paint.typeface = resolveTypeface(el)
         val x = dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0
         val y = dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0
         val w = paint.measureText(content).toDouble()
