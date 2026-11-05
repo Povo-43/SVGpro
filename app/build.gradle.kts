@@ -13,7 +13,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 16
-        versionName = "1.4.6"
+        versionName = "1.4.7"
     }
 
     // APKファイル名をSVGproに統一（SVGpro-debug.apk / SVGpro-release.apk）
