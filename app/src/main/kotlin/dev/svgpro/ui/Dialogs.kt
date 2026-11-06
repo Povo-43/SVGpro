@@ -1045,6 +1045,7 @@ fun ContextMenu(
     editor: Editor,
     screenX: Float,
     screenY: Float,
+    origin: androidx.compose.ui.geometry.Offset = androidx.compose.ui.geometry.Offset.Zero,
     onDismiss: () -> Unit,
 ) {
     // メニュー項目: (ラベル, アイコン, アクション, 有効か)
@@ -1067,10 +1068,27 @@ fun ContextMenu(
         }, true),
     )
 
-    Box(
-        modifier = Modifier
-            .width(180.dp),
-    ) {
+    // 長押しした位置（キャンバス内px + キャンバスのルート内位置）にメニューを表示する。
+    // 以前はoffset未指定で常に左上に表示されるため、指元で操作できない欠陥があった。
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // 外側タップで閉じる
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clickable(onClick = onDismiss),
+        )
+        val rawX = with(density) { (origin.x + screenX).toDp() }
+        val rawY = with(density) { (origin.y + screenY).toDp() }
+        val menuW = 180.dp
+        val menuH = 300.dp
+        val x = rawX.coerceIn(0.dp, (maxWidth - menuW).coerceAtLeast(0.dp))
+        val y = rawY.coerceIn(0.dp, (maxHeight - menuH).coerceAtLeast(0.dp))
+        Box(
+            modifier = Modifier
+                .offset(x = x, y = y)
+                .width(menuW),
+        ) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(8.dp),
@@ -1110,6 +1128,7 @@ fun ContextMenu(
                     }
                 }
             }
+        }
         }
     }
 }

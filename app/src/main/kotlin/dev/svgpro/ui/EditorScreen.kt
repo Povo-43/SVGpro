@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -22,9 +24,20 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -44,7 +57,11 @@ import dev.svgpro.core.svg.Element
 import dev.svgpro.core.svg.TokenSource
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.invertSelection
+import dev.svgpro.editor.swapFillStrokeSelection
 import dev.svgpro.editor.renderToBitmap
+import dev.svgpro.editor.selectSameFill
+import dev.svgpro.editor.selectSameStroke
+import dev.svgpro.editor.selectSameKind
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.ToolType
 import java.io.BufferedReader
@@ -63,6 +80,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var refresh by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
+    val focusManager = LocalFocusManager.current
 
     var showMenu by remember { mutableStateOf(false) }
     var showNewDoc by remember { mutableStateOf(false) }
@@ -93,6 +111,9 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
     var showDocSettings by remember { mutableStateOf(false) }
+
+    /** キャンバスビューの画面内位置（インラインテキスト入力の配置に使用） */
+    var canvasOrigin by remember { mutableStateOf(Offset.Zero) }
 
     /** テキストインラインエディタのモード（null=非表示） */
     val textEditState = remember { mutableStateOf<TextEditMode?>(null) }
@@ -158,11 +179,11 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         if (uri != null) openDocument(vm, uri)
     }
     val createLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/svg+xml")) { uri ->
-        if (uri != null) {
-            saveToUri(vm, uri, editor)
+        if (uri != null && saveToUri(vm, uri, editor)) {
             vm.currentUri = uri
             editor.documentName = uri.lastPathSegment?.substringAfterLast('/') ?: "untitled.svg"
             editor.markSaved()
+            vm.clearBackup(context)
         }
     }
 
@@ -198,9 +219,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         editor.saveAnimationsToDocument()
         val uri = vm.currentUri
         if (uri != null) {
-            saveToUri(vm, uri, editor)
-            editor.markSaved()
-            vm.clearBackup(context)
+            if (saveToUri(vm, uri, editor)) {
+                editor.markSaved()
+                vm.clearBackup(context)
+            }
         } else {
             createLauncher.launch(editor.documentName)
         }
@@ -219,7 +241,12 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         onDispose { MainActivity.keyHandler = null }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            // フォーカス中の入力欄がある間はグローバルショートカットを抑止する。
+            .onFocusChanged { MainActivity.textInputFocused = it.hasFocus },
+    ) {
         val isExpanded = maxWidth >= 840.dp
         val isMedium = !isExpanded && maxWidth >= 600.dp
         val sheetMaxH = maxHeight * 0.44f
@@ -235,6 +262,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             TopBar(
                 editor = editor,
                 refresh = refresh,
+                compact = !isExpanded && !isMedium,
+                expanded = isExpanded,
                 animationMode = animationMode,
                 onAnimationModeToggle = { editor.setAnimationMode(!animationMode) },
                 showMenu = showMenu,
@@ -291,6 +320,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     },
                     onShortcuts = { showShortcuts = true },
                     onFontToPath = { showFontToPath = true },
+                    onPanel = { name -> showPanel = if (showPanel == name) null else name },
                 )
             }
 
@@ -302,11 +332,27 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 if (isExpanded || isMedium) {
                     ToolRail(editor, refresh, vertical = true)
                 }
-                Box(Modifier.weight(1f).fillMaxHeight()) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        // キャンバス操作を始めたら入力欄のフォーカスを外し、
+                        // 1キーのツール切替などのショートカットを再有効化する。
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial)
+                                    focusManager.clearFocus()
+                                }
+                            }
+                        },
+                ) {
                     AndroidView(
                         factory = { canvasView },
                         update = { view -> view.invalidate() },
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { canvasOrigin = it.positionInRoot() },
                     )
                     // ペン作成中の確定/取消（フローティングバー）
                     if (penDraftActive) {
@@ -354,6 +400,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                         customFontFamilies = vm.loadedFontFamilies,
                         onShowFontManager = { showFontManager = true },
                         animationMode = animationMode,
+                        onReplaceColor = { showReplaceColor = true },
                     )
                 }
             }
@@ -376,10 +423,11 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     customFontFamilies = vm.loadedFontFamilies,
                     onShowFontManager = { showFontManager = true },
                     animationMode = animationMode,
+                    onReplaceColor = { showReplaceColor = true },
                 )
             }
 
-            StatusBar(editor, refresh)
+            StatusBar(editor, refresh, compact = !isExpanded && !isMedium)
         }
 
         if (showDocSettings) {
@@ -403,6 +451,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             TextInputOverlay(
                 editor = editor,
                 mode = currentEditMode,
+                canvasOrigin = canvasOrigin,
                 onDismiss = { textEditMode = null },
                 onConfirm = { value ->
                     when (currentEditMode) {
@@ -525,6 +574,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 editor = editor,
                 screenX = contextMenuPos[0],
                 screenY = contextMenuPos[1],
+                origin = canvasOrigin,
                 onDismiss = { showContextMenu = false },
             )
         }
@@ -541,6 +591,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgOptimize = { showSvgOptimize = true },
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
                 onExportPng = { pngLauncher.launch("export.png") },
+                onPanel = { name -> showPanel = name },
             )
         }
 
@@ -618,6 +669,8 @@ private fun handleKey(editor: Editor, keyCode: Int, event: android.view.KeyEvent
         keyCode == android.view.KeyEvent.KEYCODE_DEL || keyCode == android.view.KeyEvent.KEYCODE_FORWARD_DEL -> { editor.deleteSelection(); true }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_C -> { editor.copySelection(); true }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_X -> { editor.cutSelection(); true }
+        // ペースト（インプレース）: 同じ位置へ貼り付け（Ctrl+Shift+V は通常ペーストより先に判定）
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_V && shift -> { editor.pasteFromClipboard(inPlace = true); true }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_V -> { editor.pasteFromClipboard(inPlace = false); true }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_D -> { editor.duplicateSelection(); true }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_G && !shift -> { editor.groupSelection(); true }
@@ -629,7 +682,12 @@ private fun handleKey(editor: Editor, keyCode: Int, event: android.view.KeyEvent
             )
             true
         }
-        ctrl && keyCode == android.view.KeyEvent.KEYCODE_J -> { editor.transformAgain(); true }
+        keyCode == android.view.KeyEvent.KEYCODE_J && ctrl -> { editor.transformAgain(); true }
+        // Escape: ペン下書きの取消、または選択解除
+        keyCode == android.view.KeyEvent.KEYCODE_ESCAPE -> {
+            if (editor.penDraft != null) editor.cancelPenDraft() else editor.clearSelection()
+            true
+        }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_R -> { editor.showRulers = !editor.showRulers; editor.onChanged(); true }
         keyCode == android.view.KeyEvent.KEYCODE_V && !ctrl -> { editor.tool = ToolType.SELECT; true }
         keyCode == android.view.KeyEvent.KEYCODE_A && !ctrl -> { editor.tool = ToolType.NODE; true }
@@ -642,6 +700,7 @@ private fun handleKey(editor: Editor, keyCode: Int, event: android.view.KeyEvent
         keyCode == android.view.KeyEvent.KEYCODE_I && !ctrl -> { editor.tool = ToolType.EYEDROPPER; true }
         keyCode == android.view.KeyEvent.KEYCODE_H && !ctrl -> { editor.tool = ToolType.HAND; true }
         keyCode == android.view.KeyEvent.KEYCODE_G && !ctrl -> { editor.tool = ToolType.GRADIENT; true }
+        keyCode == android.view.KeyEvent.KEYCODE_X && !ctrl -> { editor.swapFillStrokeSelection(); true }
         keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) -10.0 else -1.0, 0.0); true }
         keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) 10.0 else 1.0, 0.0); true }
         keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP && editor.selection.isNotEmpty() -> { nudge(editor, 0.0, if (shift) -10.0 else -1.0); true }
@@ -662,6 +721,8 @@ private fun nudge(editor: Editor, dx: Double, dy: Double) {
 private fun TopBar(
     editor: Editor,
     refresh: Int,
+    compact: Boolean,
+    expanded: Boolean,
     animationMode: Boolean,
     onAnimationModeToggle: () -> Unit,
     showMenu: Boolean,
@@ -792,6 +853,28 @@ private fun TopBar(
                         onClick = { onMenuDismiss(); editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
                     )
                     HorizontalDivider()
+                    SectionTitle("パネル")
+                    DropdownMenuItem(
+                        text = { Text("レイヤー / オブジェクト") },
+                        leadingIcon = { Icon(AppIcons.Layers, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onPanel("layers") },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("プロパティ") },
+                        leadingIcon = { Icon(AppIcons.Palette, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onPanel("props") },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("操作履歴") },
+                        leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onPanel("history") },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ナビゲーター") },
+                        leadingIcon = { Icon(AppIcons.Navigator, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onPanel("navigator") },
+                    )
+                    HorizontalDivider()
                     // ツール・その他
                     SectionTitle("ツール・その他")
                     DropdownMenuItem(
@@ -874,19 +957,25 @@ private fun TopBar(
             }
 
             // ―――― よく使う操作を直接アイコンでアクセス ――――
-            BarIconButton(AppIcons.Plus, "新規ドキュメント", description = "新しいSVGドキュメントを作成します", onClick = onNew)
-            BarIconButton(AppIcons.MenuIcon, "開く", description = "SVGファイルを開きます", onClick = onOpen)
-            BarDivider()
+            // 画面幅が狭いときはメニューに任せ、主要操作だけを残して
+            // ボタンが画面外へはみ出して押せなくなるのを防ぐ。
+            if (!compact) {
+                BarIconButton(AppIcons.Plus, "新規ドキュメント", description = "新しいSVGドキュメントを作成します", onClick = onNew)
+                BarIconButton(AppIcons.Folder, "開く", description = "SVGファイルを開きます", onClick = onOpen)
+                BarDivider()
+            }
             BarIconButton(AppIcons.Undo, "元に戻す", description = "直前の操作を元に戻します（Ctrl+Z）", enabled = editor.undoStack.canUndo, onClick = { editor.undo() })
             BarIconButton(AppIcons.Redo, "やり直す", description = "元に戻した操作をやり直します（Ctrl+Shift+Z）", enabled = editor.undoStack.canRedo, onClick = { editor.redo() })
             BarDivider()
-            BarIconButton(AppIcons.ContentCopy, "コピー", description = "選択をコピーします（Ctrl+C）", enabled = editor.selection.isNotEmpty(), onClick = { editor.copySelection() })
-            BarIconButton(AppIcons.ContentCut, "カット", description = "選択をカットします（Ctrl+X）", enabled = editor.selection.isNotEmpty(), onClick = { editor.cutSelection() })
-            BarIconButton(AppIcons.ContentPaste, "ペースト", description = "クリップボードをペーストします（Ctrl+V）", enabled = editor.clipboard.isNotEmpty(), onClick = { editor.pasteFromClipboard(inPlace = false) })
-            BarDivider()
-            BarIconButton(AppIcons.Delete, "削除", description = "選択を削除します（Delete）", enabled = editor.selection.isNotEmpty(), onClick = { editor.deleteSelection() })
-            BarIconButton(AppIcons.Group, "複製", description = "選択を複製します（Ctrl+D）", enabled = editor.selection.isNotEmpty(), onClick = { editor.duplicateSelection() })
-            BarDivider()
+            if (expanded) {
+                BarIconButton(AppIcons.ContentCopy, "コピー", description = "選択をコピーします（Ctrl+C）", enabled = editor.selection.isNotEmpty(), onClick = { editor.copySelection() })
+                BarIconButton(AppIcons.ContentCut, "カット", description = "選択をカットします（Ctrl+X）", enabled = editor.selection.isNotEmpty(), onClick = { editor.cutSelection() })
+                BarIconButton(AppIcons.ContentPaste, "ペースト", description = "クリップボードをペーストします（Ctrl+V）", enabled = editor.clipboard.isNotEmpty(), onClick = { editor.pasteFromClipboard(inPlace = false) })
+                BarDivider()
+                BarIconButton(AppIcons.Delete, "削除", description = "選択を削除します（Delete）", enabled = editor.selection.isNotEmpty(), onClick = { editor.deleteSelection() })
+                BarIconButton(AppIcons.Group, "複製", description = "選択を複製します（Ctrl+D）", enabled = editor.selection.isNotEmpty(), onClick = { editor.duplicateSelection() })
+                BarDivider()
+            }
             BarIconButton(AppIcons.Save, "保存", description = "現在のドキュメントを上書き保存します（Ctrl+S）", onClick = onSave)
             BarDivider()
             BarIconButton(
@@ -899,11 +988,18 @@ private fun TopBar(
                 description = "選択オブジェクトの塗り・線・テキスト等を編集",
                 active = activePanel == "props", onClick = { onPanel("props") },
             )
-            BarIconButton(
-                AppIcons.Edit, "履歴",
-                description = "操作履歴パネルを表示",
-                active = activePanel == "history", onClick = { onPanel("history") },
-            )
+            if (!compact) {
+                BarIconButton(
+                    AppIcons.Edit, "履歴",
+                    description = "操作履歴パネルを表示",
+                    active = activePanel == "history", onClick = { onPanel("history") },
+                )
+                BarIconButton(
+                    AppIcons.Navigator, "ナビゲーター",
+                    description = "ドキュメント全体と表示範囲を確認・移動",
+                    active = activePanel == "navigator", onClick = { onPanel("navigator") },
+                )
+            }
         }
         // 上部バーとキャンバスの間のヘアライン
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -1179,6 +1275,7 @@ private fun RailToggle(icon: ImageVector, desc: String, description: String? = n
 private fun panelTitle(panel: String?): String = when (panel) {
     "layers" -> "レイヤー / オブジェクト"
     "history" -> "操作履歴"
+    "navigator" -> "ナビゲーター"
     else -> "プロパティ"
 }
 
@@ -1245,8 +1342,9 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
                     )
                     TextButton(
                         onClick = {
-                            // redo は最新側から順に適用：redoHistory[0] が最新
-                            stack.undoToSize(stack.undoHistory.size + i + 1)
+                            // redoHistory[0] が最新（次のredoで適用される操作）。
+                            // 一覧の上から i 番目まで進むには redo を (i+1) 回適用する。
+                            stack.redoTimes(i + 1)
                         },
                         contentPadding = PaddingValues(horizontal = 4.dp),
                     ) { Text("復帰", style = MaterialTheme.typography.labelSmall) }
@@ -1260,49 +1358,108 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
 @Composable
 private fun NavigatorPanel(editor: Editor, refresh: Int) {
     val vb = editor.doc.viewBox
-    val zoom = editor.zoom
-    val vm = editor.viewMatrix
-    val viewportW = editor.viewportW.coerceAtLeast(1.0)
-    val viewportH = editor.viewportH.coerceAtLeast(1.0)
+    val panelW = 220.dp
+    val panelH = 150.dp
+    val density = LocalDensity.current
+    val pW = with(density) { panelW.toPx() }
+    val pH = with(density) { panelH.toPx() }
 
-    // パネル内の描画エリア（サムネイル相当）
-    val panelW = 140.0
-    val panelH = 100.0
+    // ドキュメント全体をパネルに収める（余白 6px）
+    val scale = minOf(
+        (pW - 12f) / vb.width.coerceAtLeast(1.0).toFloat(),
+        (pH - 12f) / vb.height.coerceAtLeast(1.0).toFloat(),
+    )
+    val offX = (pW - vb.width.toFloat() * scale) / 2f - vb.minX.toFloat() * scale
+    val offY = (pH - vb.height.toFloat() * scale) / 2f - vb.minY.toFloat() * scale
 
-    // ビューポートをパネル座標に変換（viewBox 基準）
-    val scale = Math.min(panelW / vb.width.coerceAtLeast(1.0), panelH / vb.height.coerceAtLeast(1.0))
-    val viewLeft = (vm.e - vb.minX) * scale
-    val viewTop = (vm.f - vb.minY) * scale
-    val viewRight = (vm.e + viewportW / zoom - vb.minX) * scale
-    val viewBottom = (vm.f + viewportH / zoom - vb.minY) * scale
+    // 現在表示しているuser領域（回転も考慮）
+    val v0 = editor.screenToUser(Vec(0.0, 0.0))
+    val v1 = editor.screenToUser(Vec(editor.viewportW, editor.viewportH))
+    val vx0 = (minOf(v0.x, v1.x) * scale + offX).toFloat()
+    val vy0 = (minOf(v0.y, v1.y) * scale + offY).toFloat()
+    val vw = (kotlin.math.abs(v1.x - v0.x) * scale).toFloat()
+    val vh = (kotlin.math.abs(v1.y - v0.y) * scale).toFloat()
+
+    val docRectColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val viewColor = MaterialTheme.colorScheme.primary
 
     Column(
-        Modifier.fillMaxSize().padding(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("ナビゲーター", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-        Text("${dev.svgpro.core.util.Numbers.format(zoom * 100.0)}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-        // ドキュメント境界＋ビューポートを描画
-        Box(
+        SectionTitle("ナビゲーター")
+        Text(
+            "${dev.svgpro.core.util.Numbers.format(editor.zoom * 100.0)}%  クリックでその位置へ移動",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Canvas(
             Modifier
-                .size(panelW.dp, panelH.dp)
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                .size(panelW, panelH)
                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable {
-                    // クリック位置をドキュメント座標に変換して中心へパン
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                .pointerInput(vb.minX, vb.minY, vb.width, vb.height, scale, offX, offY) {
+                    detectTapGestures { p ->
+                        val ux = ((p.x - offX) / scale).toDouble() + vb.minX
+                        val uy = ((p.y - offY) / scale).toDouble() + vb.minY
+                        editor.centerOnUser(Vec(ux, uy))
+                    }
                 },
         ) {
-            // ドキュメント境界線（薄いグレー）
-            // ビューポート矩形（青い枠）
-            Box(
-                Modifier
-                    .width(((viewRight - viewLeft).coerceAtLeast(4.0)).toFloat().dp)
-                    .height(((viewBottom - viewTop).coerceAtLeast(4.0)).toFloat().dp)
-                    .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
-                    .offset(x = viewLeft.roundToInt().dp, y = viewTop.roundToInt().dp)
-            ) {}
+            // ページ範囲
+            drawRect(
+                color = docRectColor,
+                topLeft = Offset(vb.minX.toFloat() * scale + offX, vb.minY.toFloat() * scale + offY),
+                size = androidx.compose.ui.geometry.Size(vb.width.toFloat() * scale, vb.height.toFloat() * scale),
+                style = Stroke(width = 1.2f),
+            )
+            // アートボード
+            editor.doc.artboards.forEach { a ->
+                drawRect(
+                    color = docRectColor.copy(alpha = 0.45f),
+                    topLeft = Offset(a.x.toFloat() * scale + offX, a.y.toFloat() * scale + offY),
+                    size = androidx.compose.ui.geometry.Size(a.w.toFloat() * scale, a.h.toFloat() * scale),
+                    style = Stroke(width = 0.8f),
+                )
+            }
+            // 現在のビューポート
+            drawRect(
+                color = viewColor.copy(alpha = 0.18f),
+                topLeft = Offset(vx0, vy0),
+                size = androidx.compose.ui.geometry.Size(vw.coerceAtLeast(4f), vh.coerceAtLeast(4f)),
+            )
+            drawRect(
+                color = viewColor,
+                topLeft = Offset(vx0, vy0),
+                size = androidx.compose.ui.geometry.Size(vw.coerceAtLeast(4f), vh.coerceAtLeast(4f)),
+                style = Stroke(width = 1.5f),
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            CompactButton("全体表示") { editor.fitToPage() }
+            CompactButton("選択にフィット") { editor.fitToSelection() }
+        }
+        if (editor.doc.artboards.size > 1) {
+            Text("アートボード", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                editor.doc.artboards.forEachIndexed { i, a ->
+                    val active = i == editor.currentArtboardIndex
+                    Text(
+                        a.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { editor.setCurrentArtboard(i) }
+                            .background(
+                                if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                else androidx.compose.ui.graphics.Color.Transparent,
+                                RoundedCornerShape(4.dp),
+                            )
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -1319,6 +1476,7 @@ private fun SidePanel(
     customFontFamilies: List<String>,
     onShowFontManager: () -> Unit,
     animationMode: Boolean = false,
+    onReplaceColor: (() -> Unit)? = null,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1359,6 +1517,7 @@ private fun SidePanel(
                             onLoadSwatches,
                             customFontFamilies = customFontFamilies,
                             onShowFontManager = onShowFontManager,
+                            onReplaceColor = onReplaceColor,
                         )
                     }
                 }
@@ -1380,6 +1539,7 @@ private fun SheetPanel(
     customFontFamilies: List<String>,
     onShowFontManager: () -> Unit,
     animationMode: Boolean = false,
+    onReplaceColor: (() -> Unit)? = null,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -1432,6 +1592,7 @@ private fun SheetPanel(
                             onLoadSwatches,
                             customFontFamilies = customFontFamilies,
                             onShowFontManager = onShowFontManager,
+                            onReplaceColor = onReplaceColor,
                         )
                     }
                 }
@@ -1443,7 +1604,7 @@ private fun SheetPanel(
 // ―――― ステータスバー（ズーム操作つき） ――――
 
 @Composable
-private fun StatusBar(editor: Editor, refresh: Int) {
+private fun StatusBar(editor: Editor, refresh: Int, compact: Boolean) {
     // refreshによりstrong skippingを打ち消し、zoom/選択数/ツール名等の素の読み取りを更新する
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Column {
@@ -1535,20 +1696,22 @@ private fun StatusBar(editor: Editor, refresh: Int) {
                     editor.zoomBy(1.25, Vec(editor.viewportW / 2.0, editor.viewportH / 2.0))
                 }
                 MiniZoomButton(AppIcons.Fit, "全体表示") { editor.fitToPage() }
-                MiniZoomButton(AppIcons.RotateCW, "キャンバス回転元に戻す") {
-                    editor.setCanvasRotationDeg(0.0)
+                if (!compact) {
+                    MiniZoomButton(AppIcons.RotateCW, "キャンバス回転元に戻す") {
+                        editor.setCanvasRotationDeg(0.0)
+                    }
+                    MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 -90°") {
+                        editor.rotateCanvas(-90.0)
+                    }
+                    MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 +90°") {
+                        editor.rotateCanvas(90.0)
+                    }
+                    Text(
+                        if (editor.canvasRotation != 0.0) "回転 ${(editor.canvasRotation).toInt()}°" else "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 -90°") {
-                    editor.rotateCanvas(-90.0)
-                }
-                MiniZoomButton(AppIcons.RotateCW, "キャンバス回転 +90°") {
-                    editor.rotateCanvas(90.0)
-                }
-                Text(
-                    if (editor.canvasRotation != 0.0) "回転 ${(editor.canvasRotation).toInt()}°" else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
         }
@@ -1643,11 +1806,11 @@ fun openDocument(vm: EditorViewModel, uri: android.net.Uri) {
     }
 }
 
-fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor) {
-    try {
+fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor): Boolean {
+    return try {
         // アニメーショントラックをドキュメント属性に保存してからシリアライズ
         editor.saveKeyframesToDocument()
-        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
+        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return false
         resolver.openOutputStream(uri, "wt")?.use { out ->
             val bytes = editor.doc.serialize().toByteArray(Charsets.UTF_8)
             if (uri.lastPathSegment?.endsWith(".svgz", ignoreCase = true) == true) {
@@ -1655,9 +1818,11 @@ fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor) {
             } else {
                 out.write(bytes)
             }
-        }
+        } ?: return false
+        true
     } catch (e: Exception) {
         e.printStackTrace()
+        false
     }
 }
 
@@ -1667,8 +1832,11 @@ fun importImage(vm: EditorViewModel, uri: android.net.Uri) {
         val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return
         resolver.openInputStream(uri)?.use { input ->
             val bmp = android.graphics.BitmapFactory.decodeStream(input) ?: return
+            val width = bmp.width
+            val height = bmp.height
             val out = java.io.ByteArrayOutputStream()
             bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            // recycle前に寸法を取得しておく（recycle後のwidth/height参照は端末により不安定）
             bmp.recycle()
             val base64 = android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
             val el = dev.svgpro.core.svg.Element("image")
@@ -1676,8 +1844,8 @@ fun importImage(vm: EditorViewModel, uri: android.net.Uri) {
             el.setAttr("xlink:href", "data:image/png;base64,$base64")
             el.setAttr("x", "0")
             el.setAttr("y", "0")
-            el.setAttr("width", bmp.width.toString())
-            el.setAttr("height", bmp.height.toString())
+            el.setAttr("width", width.toString())
+            el.setAttr("height", height.toString())
             vm.editor.addElement(el, "import image")
         }
     } catch (e: Exception) {
@@ -1698,6 +1866,7 @@ private fun CommandPalette(
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
+    onPanel: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     val all = commandList(
@@ -1710,6 +1879,7 @@ private fun CommandPalette(
         onSvgOptimize = onSvgOptimize,
         onImageImport = onImageImport,
         onExportPng = onExportPng,
+        onPanel = onPanel,
     )
     val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
     AlertDialog(
@@ -1769,6 +1939,7 @@ private fun commandList(
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
+    onPanel: (String) -> Unit,
 ): List<Triple<String, String, () -> Unit>> {
     return listOf(
         Triple("元に戻す", "Ctrl+Z") { if (editor.undoStack.canUndo) editor.undo() },
@@ -1787,6 +1958,10 @@ private fun commandList(
             )
         },
         Triple("選択反転", "") { editor.invertSelection() },
+        Triple("同じ塗りを選択", "") { editor.selectSameFill() },
+        Triple("同じ線を選択", "") { editor.selectSameStroke() },
+        Triple("同じ種類を選択", "") { editor.selectSameKind() },
+        Triple("塗りと線を入れ替え", "X") { editor.swapFillStrokeSelection() },
         Triple("グループ化", "Ctrl+G") { editor.groupSelection() },
         Triple("グループ解除", "Ctrl+Shift+G") { editor.ungroupSelection() },
         Triple("数値変形…", "") { onTransform() },
@@ -1794,6 +1969,13 @@ private fun commandList(
         Triple("ルーラー表示", "Ctrl+R") { editor.showRulers = !editor.showRulers; editor.onChanged() },
         Triple("グリッド表示", "") { editor.showGrid = !editor.showGrid; editor.onChanged() },
         Triple("グリッドスナップ", "") { editor.snapToGrid = !editor.snapToGrid; editor.onChanged() },
+        Triple("アウトライン表示", "") { editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
+        Triple("選択にフィット", "") { editor.fitToSelection() },
+        Triple("全体表示", "") { editor.fitToPage() },
+        Triple("パネル: レイヤー / オブジェクト", "") { onPanel("layers") },
+        Triple("パネル: プロパティ", "") { onPanel("props") },
+        Triple("パネル: 操作履歴", "") { onPanel("history") },
+        Triple("パネル: ナビゲーター", "") { onPanel("navigator") },
         Triple("SVGソースコード編集…", "") { onSvgSource() },
         Triple("SVG最適化・検証…", "") { onSvgOptimize() },
         Triple("画像をインポート…", "") { onImageImport() },
@@ -1849,11 +2031,12 @@ sealed interface TextEditMode {
 private fun TextInputOverlay(
     editor: Editor,
     mode: TextEditMode,
+    canvasOrigin: Offset,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
-    // 表示位置を画面座標に変換
-    val screenPos = remember(mode) {
+    // 表示位置を画面座標に変換（キャンバス内のピクセル座標 → ルート座標 → dp）
+    val screenPos = remember(mode, canvasOrigin) {
         when (mode) {
             is TextEditMode.Create -> editor.userToScreen(mode.pos)
             is TextEditMode.Edit -> {
@@ -1863,6 +2046,12 @@ private fun TextInputOverlay(
             }
         }
     }
+    val density = LocalDensity.current
+    val focusRequester = remember { FocusRequester() }
+    val posX = canvasOrigin.x + screenPos.x.toFloat()
+    val posY = canvasOrigin.y + screenPos.y.toFloat()
+    val offsetX = with(density) { posX.toDp() }
+    val offsetY = with(density) { posY.toDp() }
 
     val initialText = when (mode) {
         is TextEditMode.Edit -> mode.initialText
@@ -1870,35 +2059,40 @@ private fun TextInputOverlay(
     }
     var text by remember(initialText) { mutableStateOf(initialText) }
 
-    // モード変更時にテキストをリセット
+    // モード変更時にテキストをリセットし、入力欄へフォーカスを移す
     LaunchedEffect(mode) {
         text = initialText
+        // レイアウト確定後にフォーカス要求（失敗しても致命的ではない）
+        runCatching { focusRequester.requestFocus() }
     }
 
-    Box(Modifier.fillMaxSize()) {
-            Column(
-                Modifier
-                    .offset(x = screenPos.x.dp, y = screenPos.y.dp)
-                    .width(280.dp)
-                    .padding(4.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val safeX = offsetX.coerceIn(0.dp, (maxWidth - 288.dp).coerceAtLeast(0.dp))
+        val safeY = offsetY.coerceIn(0.dp, (maxHeight - 150.dp).coerceAtLeast(0.dp))
+        Column(
+            Modifier
+                .offset(x = safeX, y = safeY)
+                .width(280.dp)
+                .padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                singleLine = false,
+                maxLines = 6,
+                textStyle = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
             ) {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = false,
-                    maxLines = 6,
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    TextButton(onClick = { onDismiss() }) { Text("キャンセル") }
-                    Button(onClick = { onConfirm(text) }) { Text("OK") }
-                }
+                TextButton(onClick = { onDismiss() }) { Text("キャンセル") }
+                Button(onClick = { onConfirm(text) }) { Text("OK") }
             }
         }
-
+    }
 }

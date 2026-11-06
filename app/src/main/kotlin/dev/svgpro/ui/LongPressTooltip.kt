@@ -1,26 +1,35 @@
 package dev.svgpro.ui
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * ボタン横に機能説明ポップアップを表示するラッパーコンポーネント。
+ * ツールボタン用の長押しヘルプ。
  *
- * タップでヒントの表示／非表示をトグルする。
- * ヒントはボタンの「右側」に固定表示されるため、指で隠れて見えにくい
- * という問題を回避する。
+ * - 通常タップ: 即座にアクションを実行（従来どおりの操作性）
+ * - 長押し: ボタン名と説明をポップアップ表示（外側タップで閉じる）
  *
- * - ヒント表示中は元の onClick は発火しない（誤操作防止）
- * - ヒント非表示時にタップすると onClick を実行
- * - description が設定されている場合は、ラベルに加えて詳しい説明文も表示
- * - enabled=false の時はヒントもクリックも無効化
+ * 以前は「タップでヒント表示」と「タップで実行」が同じクリックに割り当てられ、
+ * ヒントが一度も表示されない状態だった。長押しに分離することで、
+ * 操作を遅らせずにヘルプを読めるようにしている。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LongPressTooltip(
     label: String,
@@ -32,47 +41,41 @@ fun LongPressTooltip(
 ) {
     var showHint by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = modifier
-            .clickable(
+    Box(modifier = modifier) {
+        Box(
+            modifier = Modifier.combinedClickable(
                 enabled = enabled,
                 onClick = {
-                    if (showHint) {
-                        // ヒント表示中は閉じるだけ（アクションは実行しない）
-                        showHint = false
-                    } else {
-                        onClick()
-                    }
+                    if (showHint) showHint = false else onClick()
+                },
+                onLongClick = {
+                    if (enabled && label.isNotEmpty()) showHint = true
                 },
             ),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
+            contentAlignment = Alignment.Center,
+        ) {
+            content()
+        }
 
-        if (showHint && label.isNotEmpty() && enabled) {
-            Box(Modifier.align(Alignment.CenterEnd).padding(start = 8.dp)) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    tonalElevation = 8.dp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                ) {
-                    Column(Modifier.widthIn(max = 220.dp)) {
-                        Text(
-                            text = label.uppercase(),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        )
-                        description?.let { desc ->
-                            Text(
-                                text = desc,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 3,
-                            )
-                        }
-                    }
+        DropdownMenu(
+            expanded = showHint,
+            onDismissRequest = { showHint = false },
+            modifier = Modifier.widthIn(min = 180.dp, max = 280.dp),
+        ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(
+                    text = label.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+                description?.let { desc ->
+                    Text(
+                        text = desc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
                 }
             }
         }

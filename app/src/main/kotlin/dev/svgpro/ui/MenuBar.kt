@@ -8,6 +8,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.svgpro.editor.Editor
+import dev.svgpro.editor.selectSameFill
+import dev.svgpro.editor.selectSameKind
+import dev.svgpro.editor.selectSameStroke
+import dev.svgpro.editor.swapFillStrokeSelection
 
 /**
  * デスクトップ／タブレット向けPCライクメニューバー。
@@ -44,6 +48,7 @@ fun MenuBar(
     onText: () -> Unit,
     onShortcuts: () -> Unit,
     onFontToPath: () -> Unit,
+    onPanel: (String) -> Unit = {},
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -73,7 +78,7 @@ fun MenuBar(
                 DropdownMenu(
                     expanded = true,
                     onDismissRequest = {},
-                    modifier = Modifier.width(200.dp),
+                    modifier = Modifier.width(220.dp),
                 ) {
                     MenuDropdownItem("元に戻す", { onUndo() }, enabled = editor.undoStack.canUndo)
                     MenuDropdownItem("やり直す", { onRedo() }, enabled = editor.undoStack.canRedo)
@@ -83,8 +88,14 @@ fun MenuBar(
                     MenuDropdownItem("ペースト", { onPaste() }, enabled = editor.clipboard.isNotEmpty())
                     MenuDropdownItem("削除", { onDelete() }, enabled = editor.selection.isNotEmpty())
                     MenuDropdownItem("複製", { onDuplicate() }, enabled = editor.selection.isNotEmpty())
+                    HorizontalDivider()
                     MenuDropdownItem("全選択", { onSelectAll() })
                     MenuDropdownItem("選択反転", { onInvertSelection() })
+                    MenuDropdownItem("同じ塗りを選択", { editor.selectSameFill() }, enabled = editor.selection.isNotEmpty())
+                    MenuDropdownItem("同じ線を選択", { editor.selectSameStroke() }, enabled = editor.selection.isNotEmpty())
+                    MenuDropdownItem("同じ種類を選択", { editor.selectSameKind() }, enabled = editor.selection.isNotEmpty())
+                    HorizontalDivider()
+                    MenuDropdownItem("塗りと線を入れ替え", { editor.swapFillStrokeSelection() }, enabled = editor.selection.isNotEmpty())
                 }
             }
             MenuItem("表示") {
@@ -97,6 +108,11 @@ fun MenuBar(
                     MenuDropdownItem("グリッドスナップ", { onSnap() }, checked = editor.snapToGrid)
                     MenuDropdownItem("ルーラー表示", { onRulers() }, checked = editor.showRulers)
                     MenuDropdownItem("アウトライン表示", { onOutline() }, checked = editor.showOutlineMode)
+                    HorizontalDivider()
+                    MenuDropdownItem("レイヤー / オブジェクト", { onPanel("layers") })
+                    MenuDropdownItem("プロパティ", { onPanel("props") })
+                    MenuDropdownItem("操作履歴", { onPanel("history") })
+                    MenuDropdownItem("ナビゲーター", { onPanel("navigator") })
                 }
             }
             MenuItem("オブジェクト") {

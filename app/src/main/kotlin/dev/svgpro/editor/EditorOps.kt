@@ -298,6 +298,22 @@ private fun Editor.selectSameBy(predicate: (Element) -> Boolean) {
     notifySelection()
 }
 
+/** 塗りと線を入れ替える（IllustratorのShift+X相当） */
+fun Editor.swapFillStrokeSelection(): Boolean {
+    if (selection.isEmpty()) return false
+    commit("swap fill/stroke") { batch ->
+        for (el in selection) {
+            batch.touch(el)
+            val fill = StyleUtil.getProperty(el, "fill")
+            val stroke = StyleUtil.getProperty(el, "stroke")
+            if (fill == null && stroke == null) continue
+            if (fill != null) StyleUtil.setProperty(el, "stroke", fill) else StyleUtil.removeProperty(el, "stroke")
+            if (stroke != null) StyleUtil.setProperty(el, "fill", stroke) else StyleUtil.removeProperty(el, "fill")
+        }
+    }
+    return true
+}
+
 /** グループ選択: 選択要素の最上位の親グループを選択 */
 fun Editor.selectParent() {
     val first = selection.firstOrNull() ?: return

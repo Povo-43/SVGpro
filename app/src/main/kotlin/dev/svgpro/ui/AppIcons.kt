@@ -203,6 +203,16 @@ object AppIcons {
     )
 
     val Fit: ImageVector = icon("Fit", "M4,9 L4,4 L9,4 M15,4 L20,4 L20,9 M20,15 L20,20 L15,20 M9,20 L4,20 L4,15 M9,12 L15,12")
+    val Folder: ImageVector = icon(
+        "Folder",
+        "M3,6 C3,4.9 3.9,4 5,4 L9.5,4 L11.5,6 L19,6 C20.1,6 21,6.9 21,8 L21,18 C21,19.1 20.1,20 19,20 L5,20 C3.9,20 3,19.1 3,18 Z",
+        stroke = 1.4f,
+    )
+    val Navigator: ImageVector = icon(
+        "Navigator",
+        "M4,4 L20,4 L20,20 L4,20 Z M7,7 L13,7 L13,13 L7,13 Z M12,12 L17,12 L17,17 L12,17 Z",
+        stroke = 1.3f,
+    )
     val Grid: ImageVector = icon("Grid", "M4,4 L20,4 L20,20 L4,20 Z M4,9.3 L20,9.3 M4,14.6 L20,14.6 M9.3,4 L9.3,20 M14.6,4 L14.6,20", stroke = 1.2f)
     val Layers: ImageVector = icon("Layers", "M12,3 L21,8 L12,13 L3,8 Z M5.5,12 L3,13.5 L12,18.5 L21,13.5 L18.5,12 M7,15.5 L3,17.8 L12,22.5 L21,17.8 L17,15.5")
     val Palette: ImageVector = icon(

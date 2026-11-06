@@ -145,4 +145,23 @@ class UndoTest {
         // redoスタックには巻き戻し分が移動
         assertTrue(stack.canRedo)
     }
+
+    @Test
+    fun redo_times_applies_redo_entries_in_order() {
+        val doc = makeDoc()
+        val rect = doc.root.firstByTag("rect")!!
+        val stack = UndoStack()
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "11")), "set 11"))
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "12")), "set 12"))
+        stack.push(dev.svgpro.core.edit.ChangeSet(listOf(changeAttr(rect, "x", "13")), "set 13"))
+        stack.undo()
+        stack.undo()
+        assertEquals("11", rect.attr("x"))
+        assertEquals(2, stack.redoHistory.size)
+        // redoを2回適用 → 履歴は3件に戻りredoは空、値は "13"
+        stack.redoTimes(2)
+        assertEquals(3, stack.undoHistory.size)
+        assertFalse(stack.canRedo)
+        assertEquals("13", rect.attr("x"))
+    }
 }

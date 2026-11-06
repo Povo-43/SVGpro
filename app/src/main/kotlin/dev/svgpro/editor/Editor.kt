@@ -1414,8 +1414,21 @@ class Editor {
     // カラースウォッチ（選択色を登録・再利用）
     val colorSwatches = mutableStateListOf(0xFF1473E6.toInt(), 0xFF22B573.toInt(), 0xFFF5A623.toInt(), 0xFFE03E3E.toInt(), 0xFF9B5DE5.toInt())
 
+    /** 最近使用した色（新しいものが先頭・最大12件。FigmaのRecent相当） */
+    val recentColors = mutableStateListOf<Int>()
+
+    /** 色を使用済みリストの先頭へ記録する */
+    fun rememberColor(argb: Int) {
+        val i = recentColors.indexOf(argb)
+        if (i == 0) return
+        if (i > 0) recentColors.removeAt(i)
+        recentColors.add(0, argb)
+        while (recentColors.size > 12) recentColors.removeAt(recentColors.lastIndex)
+    }
+
     fun addColorSwatch(argb: Int) {
         if (argb !in colorSwatches) colorSwatches.add(argb)
+        rememberColor(argb)
     }
 
     fun removeColorSwatch(index: Int) {
@@ -1578,6 +1591,18 @@ class Editor {
     fun fitToSelection() {
         val b = trace.boundsOf(selection) ?: fitToPage().let { return }
         fitRect(b)
+    }
+
+    /** 指定したuser座標をビューポート中央に表示する（ナビゲーターのクリック移動用）。 */
+    fun centerOnUser(v: Vec) {
+        val scale = viewMatrix.a.coerceAtLeast(1e-6)
+        viewMatrix = Matrix(
+            a = scale, b = 0.0, c = 0.0, d = scale,
+            e = viewportW / 2.0 - v.x * scale,
+            f = viewportH / 2.0 - v.y * scale,
+        )
+        onZoomChanged()
+        onChanged()
     }
 
     fun zoomTo100() {
@@ -2209,6 +2234,7 @@ class Editor {
 
     fun applyFillToSelection(paint: Paint) {
         if (selection.isEmpty()) return
+        (paint as? Paint.Solid)?.let { rememberColor(it.argb) }
         commit("fill") { batch ->
             for (el in selection) {
                 batch.touch(el)
@@ -2223,6 +2249,7 @@ class Editor {
 
     fun applyStrokeToSelection(paint: Paint) {
         if (selection.isEmpty()) return
+        (paint as? Paint.Solid)?.let { rememberColor(it.argb) }
         commit("stroke") { batch ->
             for (el in selection) {
                 batch.touch(el)

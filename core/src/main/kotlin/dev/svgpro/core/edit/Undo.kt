@@ -171,6 +171,11 @@ class UndoStack(val limit: Int = 400) {
             undo()
         }
     }
+
+    /** redoを n 回適用する（履歴パネルの「Redo時点へ復帰」用）。 */
+    fun redoTimes(n: Int) {
+        repeat(n.coerceAtLeast(0)) { redo() }
+    }
 }
 
 /**

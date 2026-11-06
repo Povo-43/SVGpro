@@ -135,7 +135,7 @@ class ToolController(val editor: Editor) {
                 mode = Mode.PAN
             }
             ToolType.SELECT -> onSelectDown(user, screen, ev, isStylus, doubleTap)
-            ToolType.NODE -> onNodeDown(user, screen, doubleTap, isStylus)
+            ToolType.NODE -> onNodeDown(user, screen, ev, doubleTap)
             ToolType.PEN -> onPenDown(user, isStylus)
             ToolType.GRADIENT -> onGradientDown(user, screen)
             ToolType.FREEHAND -> {
@@ -145,7 +145,9 @@ class ToolController(val editor: Editor) {
                 freehandPressures.add(ev.pressure.coerceIn(0.05f, 1.0f))
                 editor.freehandDraft = mutableListOf(user)
             }
-            ToolType.RECT, ToolType.RRECT, ToolType.ELLIPSE, ToolType.LINE, ToolType.POLYGON, ToolType.STAR, ToolType.POLYLINE -> {
+            ToolType.RECT, ToolType.RRECT, ToolType.ELLIPSE, ToolType.LINE,
+            ToolType.POLYGON, ToolType.STAR, ToolType.POLYLINE,
+            ToolType.ARC, ToolType.SECTOR, ToolType.SPIRAL -> {
                 mode = Mode.SHAPE
                 editor.shapeDraft = Triple(user, user, editor.tool)
             }
@@ -155,14 +157,11 @@ class ToolController(val editor: Editor) {
             ToolType.EYEDROPPER -> {
                 pickColor(user)
             }
-            ToolType.GRADIENT -> {
-                onGradientDown(user, screen)
-            }
-            else -> {
-                // ARC, SECTOR, SPIRAL など未対応ツールは何もしない
-            }
+            else -> Unit
         }
-        editor.notifyChanged()
+        // ポインタダウン自体はドキュメントを変更しない（選択・ツール開始のみ）。
+        // ここで notifyChanged() を呼ぶと、単にタップしただけで未保存マークが付いてしまう。
+        editor.onChanged()
     }
 
     /** グラデーションツール: ハンドル（始点/終点）をつかんでドラッグ */
@@ -244,11 +243,12 @@ class ToolController(val editor: Editor) {
                 editor.rotateSelection(deg, rotateCenter)
             }
             Mode.MARQUEE -> {
-                editor.notifyChanged()
+                // 選択枠の描画のみ。ドキュメントは変更されない。
+                editor.onChanged()
             }
             Mode.LASSO -> {
                 lassoPoints.add(user)
-                editor.notifyChanged()
+                editor.onChanged()
             }
             Mode.NODE_DRAG -> {
                 val session = editor.nodeSession ?: return
@@ -287,7 +287,7 @@ class ToolController(val editor: Editor) {
             }
             Mode.SHAPE -> {
                 editor.shapeDraft = Triple(downUser, user, editor.tool)
-                editor.notifyChanged()
+                editor.onChanged()
             }
             Mode.FREEHAND -> {
                 val draft = editor.freehandDraft ?: return
@@ -295,7 +295,7 @@ class ToolController(val editor: Editor) {
                 if (lastPoint.distanceTo(user) * editor.zoom > 2.0) {
                     draft.add(user)
                     freehandPressures.add(if (editor.usePressure) ev.pressure.coerceIn(0.05f, 1.0f) else 0.5f)
-                    editor.notifyChanged()
+                    editor.onChanged()
                 }
             }
             else -> {}
@@ -308,18 +308,19 @@ class ToolController(val editor: Editor) {
         val tap = !moved && (System.currentTimeMillis() - downTime) < 600
         when (mode) {
             Mode.MOVE, Mode.SCALE, Mode.ROTATE -> {
+                val session = dragSession
+                dragSession = null
                 if (cancelled) {
                     restorePreTransforms()
+                    editor.onChanged()
+                } else {
+                    // 実際に変更があった場合のみ履歴/未保存状態を更新する
+                    editor.endDrag(session)
                 }
-                // 履歴へ
-                val cs = dragSession?.batch?.endAndCommit(labelFor(mode))
-                if (cs != null) editor.undoStack.push(cs)
-                dragSession = null
                 preTransforms = null
                 editor.smartGuideV.clear()
                 editor.smartGuideH.clear()
                 editor.setLastMoveDelta(Vec.ZERO)
-                editor.notifyChanged()
             }
             Mode.MARQUEE -> {
                 val b = rectFrom(downUser, user)
@@ -330,15 +331,16 @@ class ToolController(val editor: Editor) {
                     val hit = editor.trace.hitTest(user, 8.0 / editor.zoom)
                     editor.select(hit, additive = isShift(ev))
                 }
-                editor.notifyChanged()
+                editor.onChanged()
             }
             Mode.LASSO -> {
                 editor.selectInLasso(lassoPoints)
                 lassoPoints.clear()
-                editor.notifyChanged()
+                editor.onChanged()
             }
             Mode.NODE_DRAG, Mode.HANDLE_DRAG -> {
                 val session = editor.nodeSession
+                var changed = false
                 if (session != null) {
                     val startD = session.dragStartD
                     val el = session.el
@@ -349,47 +351,56 @@ class ToolController(val editor: Editor) {
                                 "node edit",
                             ),
                         )
+                        changed = true
                     }
                     session.dragStartD = null
                     session.activeHandle = null
                 }
-                editor.notifyChanged()
+                if (changed) editor.notifyChanged() else editor.onChanged()
             }
             Mode.SHAPE -> {
                 val draft = editor.shapeDraft
                 editor.shapeDraft = null
+                var created = false
                 if (draft != null && !cancelled) {
                     val (s, e, kind) = draft
                     if (hypot(e.x - s.x, e.y - s.y) * editor.zoom > 4) {
                         val end = editor.snapPoint(e, ignore = emptyList())
                         editor.createShape(kind, s, end)
+                        created = true
                     }
                 }
-                editor.notifyChanged()
+                if (!created) editor.onChanged()
             }
             Mode.FREEHAND -> {
                 val draft = editor.freehandDraft
                 editor.freehandDraft = null
                 freehandActive = false
+                var created = false
                 if (draft != null && draft.size >= 2 && !cancelled) {
                     val el = if (editor.usePressure && freehandPressures.size >= draft.size) {
                         buildFreehandWithPressure(draft, freehandPressures)
                     } else {
                         buildFreehand(draft)
                     }
-                    if (el != null) editor.addElement(el, "freehand")
+                    if (el != null) {
+                        editor.addElement(el, "freehand")
+                        created = true
+                    }
                 }
                 freehandPressures = ArrayList()
-                editor.notifyChanged()
+                if (!created) editor.onChanged()
             }
             Mode.GRADIENT_DRAG -> {
                 val batch = gradientBatch
                 gradientBatch = null
-                if (batch != null) {
-                    val cs = batch.endAndCommit("gradient edit")
-                    if (cs != null) editor.undoStack.push(cs)
+                val cs = batch?.endAndCommit("gradient edit")
+                if (cs != null) {
+                    editor.undoStack.push(cs)
+                    editor.notifyChanged()
+                } else {
+                    editor.onChanged()
                 }
-                editor.notifyChanged()
             }
             Mode.PAN -> {}
             else -> {}
@@ -451,7 +462,7 @@ class ToolController(val editor: Editor) {
             else -> {}
         }
         penLastOut = out
-        editor.notifyChanged()
+        editor.onChanged()
     }
 
     fun onPenUp(user: Vec, doubleTap: Boolean) {
@@ -475,7 +486,7 @@ class ToolController(val editor: Editor) {
             }
             editor.penDraft = PathData(segs)
             penLastOut = null
-            editor.notifyChanged()
+            editor.onChanged()
             return
         }
         // セグメント追加
@@ -491,7 +502,7 @@ class ToolController(val editor: Editor) {
             draft.segs.add(Seg.Line(p1.x, p1.y))
         }
         penLastOut = null
-        editor.notifyChanged()
+        editor.onChanged()
     }
 
     fun commitPen(close: Boolean) {
@@ -523,7 +534,7 @@ class ToolController(val editor: Editor) {
             mode = Mode.LASSO
             lassoPoints = ArrayList()
             lassoPoints.add(user)
-            editor.notifyChanged()
+            editor.onChanged()
             return
         }
         // ハンドル判定
@@ -553,7 +564,7 @@ class ToolController(val editor: Editor) {
             if (hitInner != null) {
                 if (hitInner.tag == "text") {
                     editor.requestTextEdit?.invoke(hitInner)
-                    editor.notifyChanged()
+                    editor.onChanged()
                     return
                 }
                 val before = editor.selection.toList()
@@ -562,7 +573,7 @@ class ToolController(val editor: Editor) {
                 if (editor.selection.isEmpty()) {
                     editor.selection.addAll(before)
                 }
-                editor.notifyChanged()
+                editor.onChanged()
                 return
             }
         }
@@ -615,18 +626,11 @@ class ToolController(val editor: Editor) {
         return delta + d * 0.999
     }
 
-    private fun labelFor(mode: Mode): String = when (mode) {
-        Mode.MOVE -> "move"
-        Mode.SCALE -> "scale"
-        Mode.ROTATE -> "rotate"
-        else -> "edit"
-    }
-
     // ―――― NODE tool ――――
 
     private var nodeDragStartPositions: Map<NodeRef, Vec> = HashMap()
 
-    private fun onNodeDown(user: Vec, screen: Vec, doubleTap: Boolean, isStylus: Boolean) {
+    private fun onNodeDown(user: Vec, screen: Vec, ev: MotionEvent, doubleTap: Boolean) {
         val session = editor.nodeSession
         if (session == null) {
             // path要素を選択する
@@ -646,7 +650,8 @@ class ToolController(val editor: Editor) {
         // ノード
         val node = hitNode(session, screen, 22.0)
         if (node != null) {
-            if (isShiftModifier()) {
+            if (isShift(ev)) {
+                // Shift+クリックで複数ノードの選択をトグル
                 session.toggleSelect(node)
             } else if (!session.selected.contains(node)) {
                 session.selectOnly(node)
@@ -655,7 +660,7 @@ class ToolController(val editor: Editor) {
             nodeDragStart = user
             nodeDragStartPositions = session.selected.associateWith { session.nodePos(it) ?: Vec.ZERO }
             mode = Mode.NODE_DRAG
-            editor.notifyChanged()
+            editor.onChanged()
             return
         }
         if (doubleTap) {
@@ -709,8 +714,6 @@ class ToolController(val editor: Editor) {
 
     private fun isCtrl(ev: MotionEvent): Boolean =
         (ev.metaState and android.view.KeyEvent.META_CTRL_ON) != 0
-
-    private fun isShiftModifier(): Boolean = false
 
     // ―――― freehand ――――
 
