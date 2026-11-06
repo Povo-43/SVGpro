@@ -30,6 +30,7 @@ import dev.svgpro.core.path.NodeKind
 import dev.svgpro.editor.ToolType
 import dev.svgpro.editor.addGradientStop
 import dev.svgpro.editor.alignSelectionTo
+import dev.svgpro.editor.addDocumentColorsToSwatches
 import dev.svgpro.editor.applyGradientToSelection
 import dev.svgpro.editor.breakSymbolInstance
 import dev.svgpro.editor.compoundSelection
@@ -427,6 +428,7 @@ private fun FillTabContent(
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             CompactButton("パレット保存") { onSaveSwatches() }
             CompactButton("パレット読込") { onLoadSwatches() }
+            CompactButton("ドキュメントから収集") { editor.addDocumentColorsToSwatches() }
             if (onReplaceColor != null) {
                 CompactButton("色一括置換…") { onReplaceColor() }
             }

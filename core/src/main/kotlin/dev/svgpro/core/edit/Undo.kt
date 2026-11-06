@@ -176,6 +176,29 @@ class UndoStack(val limit: Int = 400) {
     fun redoTimes(n: Int) {
         repeat(n.coerceAtLeast(0)) { redo() }
     }
+
+    /**
+     * 履歴を丸ごと取り出す（複数ドキュメント/タブのセッション退避用）。
+     * 呼び出し後、このスタックは空になる。
+     */
+    fun detach(): UndoStack {
+        val out = UndoStack(limit)
+        out.undo.addAll(undo)
+        out.redo.addAll(redo)
+        undo.clear()
+        redo.clear()
+        return out
+    }
+
+    /** detach() で取り出した履歴を復元する（既存の履歴は破棄）。 */
+    fun attach(other: UndoStack) {
+        undo.clear()
+        redo.clear()
+        undo.addAll(other.undo)
+        redo.addAll(other.redo)
+        other.undo.clear()
+        other.redo.clear()
+    }
 }
 
 /**

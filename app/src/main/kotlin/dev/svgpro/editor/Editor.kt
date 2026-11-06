@@ -358,6 +358,12 @@ class Editor {
     /** ペンツールの作成中パス */
     var penDraft: PathData? = null
 
+    /**
+     * ペン継続対象の既存パス（端点からの続き描き）。null=新規パス作成中。
+     * 確定時は新要素を作らず、対象の d 属性を更新する。
+     */
+    var penContinueTarget: Element? = null
+
     /** ペンドラフトの確定（要素化）。close=trueで始点へ閉じる */
     fun commitPenDraft(close: Boolean) {
         val draft = penDraft ?: return
@@ -376,7 +382,20 @@ class Editor {
             }
         }
         penDraft = null
-        if (draft.segs.size >= 2) {
+        val target = penContinueTarget
+        penContinueTarget = null
+        if (target != null) {
+            // 既存パスの端点からの続き描き: 新要素を作らず d を更新する
+            if (draft.segs.size >= 2) {
+                commit("extend path") { batch ->
+                    batch.touch(target)
+                    target.setAttr("d", draft.write())
+                }
+                select(target)
+            } else {
+                onChanged()
+            }
+        } else if (draft.segs.size >= 2) {
             val el = Element("path")
             el.setAttr("d", draft.write())
             applyCurrentStyle(el)
@@ -389,6 +408,7 @@ class Editor {
     fun cancelPenDraft() {
         if (penDraft != null) {
             penDraft = null
+            penContinueTarget = null
             onChanged()
         }
     }
@@ -1499,6 +1519,85 @@ class Editor {
 
     fun newDocument(w: Double, h: Double) {
         loadDocument(SvgDocument.create(w, h), "untitled.svg")
+    }
+
+    // ―――― 複数ドキュメント（タブ）用セッション入れ替え ――――
+
+    /**
+     * ドキュメント単位の編集セッション。タブ切替時に Editor へ退避・復元する。
+     * doc と selection は同じセッションに属するため要素参照のまま保持できる。
+     */
+    class SessionSnapshot(
+        val doc: SvgDocument,
+        val name: String,
+        val dirty: Boolean,
+        val undo: UndoStack,
+        val selection: List<Element>,
+        val viewMatrix: Matrix,
+        val canvasRotation: Double,
+        val currentArtboardIndex: Int,
+        val keyObject: Element?,
+    )
+
+    /**
+     * 現在のセッションを退避する（Undo履歴・選択・ビューごと取り出す）。
+     * 呼び出し後の Editor は空の選択/履歴で動く（ViewModelが新しいdocをロードする）。
+     */
+    fun exportSession(): SessionSnapshot {
+        val wasDirty = dirty
+        // ガイド・アニメーション定義をドキュメント属性へ退避（履歴を汚さないよう直接書き込む）
+        if (guides.isNotEmpty()) doc.root.setAttr(Guide.ATTR, Guide.Codec.encode(guides))
+        saveAnimationsToDocument()
+        saveKeyframesToDocument()
+        val snap = SessionSnapshot(
+            doc = doc,
+            name = documentName,
+            dirty = wasDirty,
+            undo = undoStack.detach(),
+            selection = selection.toList(),
+            viewMatrix = viewMatrix,
+            canvasRotation = canvasRotation,
+            currentArtboardIndex = currentArtboardIndex,
+            keyObject = keyObject,
+        )
+        nodeSession = null
+        penDraft = null
+        freehandDraft = null
+        shapeDraft = null
+        gradientEdit = null
+        selection.clear()
+        return snap
+    }
+
+    /** 退避したセッションを復元する（doc/undo/選択/ビューを丸ごと戻す）。 */
+    fun importSession(s: SessionSnapshot) {
+        doc = s.doc
+        documentName = s.name
+        dirty = s.dirty
+        undoStack.attach(s.undo)
+        selection.clear()
+        selection.addAll(s.selection)
+        viewMatrix = s.viewMatrix
+        canvasRotation = s.canvasRotation
+        currentArtboardIndex = s.currentArtboardIndex
+        keyObject = s.keyObject
+        nodeSession = null
+        penDraft = null
+        freehandDraft = null
+        shapeDraft = null
+        gradientEdit = null
+        guides.clear()
+        guides.addAll(Guide.Codec.decode(doc.root.attr(Guide.ATTR)))
+        doc.restoreArtboards()
+        restoreComments()
+        restoreStylePresets()
+        restoreBrushPresets()
+        invalidateTrace()
+        onDocumentReplaced()
+        loadAnimationsFromDocument()
+        loadKeyframesFromDocument()
+        onZoomChanged()
+        notifySelection()
     }
 
     fun markSaved() {

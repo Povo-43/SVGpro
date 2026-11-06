@@ -49,6 +49,8 @@ fun MenuBar(
     onShortcuts: () -> Unit,
     onFontToPath: () -> Unit,
     onPanel: (String) -> Unit = {},
+    isPanelOpen: (String) -> Boolean = { false },
+    onExportSelection: () -> Unit = {},
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -70,6 +72,7 @@ fun MenuBar(
                     HorizontalDivider()
                     MenuDropdownItem("上書き保存", { onSave() }, enabled = editor.dirty)
                     MenuDropdownItem("別名で保存…", { onSaveAs() })
+                    MenuDropdownItem("選択をSVGで書き出し…", { onExportSelection() }, enabled = editor.selection.isNotEmpty())
                     HorizontalDivider()
                     MenuDropdownItem("PNG書き出し…", { onExportPng() })
                 }
@@ -109,10 +112,10 @@ fun MenuBar(
                     MenuDropdownItem("ルーラー表示", { onRulers() }, checked = editor.showRulers)
                     MenuDropdownItem("アウトライン表示", { onOutline() }, checked = editor.showOutlineMode)
                     HorizontalDivider()
-                    MenuDropdownItem("レイヤー / オブジェクト", { onPanel("layers") })
-                    MenuDropdownItem("プロパティ", { onPanel("props") })
-                    MenuDropdownItem("操作履歴", { onPanel("history") })
-                    MenuDropdownItem("ナビゲーター", { onPanel("navigator") })
+                    MenuDropdownItem("レイヤー / オブジェクト", { onPanel("layers") }, checked = isPanelOpen("layers"))
+                    MenuDropdownItem("プロパティ", { onPanel("props") }, checked = isPanelOpen("props"))
+                    MenuDropdownItem("操作履歴", { onPanel("history") }, checked = isPanelOpen("history"))
+                    MenuDropdownItem("ナビゲーター", { onPanel("navigator") }, checked = isPanelOpen("navigator"))
                 }
             }
             MenuItem("オブジェクト") {

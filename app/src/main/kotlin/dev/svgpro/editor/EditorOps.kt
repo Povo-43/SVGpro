@@ -314,6 +314,69 @@ fun Editor.swapFillStrokeSelection(): Boolean {
     return true
 }
 
+/**
+ * ドキュメント内で使われている単色を収集する（塗り/線/グラデーションストップ）。
+ * 使用回数の多い順。透明色（α=0）は除外。
+ */
+fun Editor.extractDocumentColors(): List<Int> {
+    val counts = LinkedHashMap<Int, Int>()
+    fun add(c: Int) {
+        if ((c ushr 24) and 0xFF > 0) counts[c] = (counts[c] ?: 0) + 1
+    }
+    doc.root.walk { el ->
+        for (prop in listOf("fill", "stroke")) {
+            val v = StyleUtil.getProperty(el, prop) ?: continue
+            if (v == "none" || v.startsWith("url(")) continue
+            dev.svgpro.core.model.Color.parse(v)?.let(::add)
+        }
+        if (el.tag == "stop") {
+            StyleUtil.getProperty(el, "stop-color")?.let { dev.svgpro.core.model.Color.parse(it)?.let(::add) }
+        }
+    }
+    return counts.entries.sortedByDescending { it.value }.map { it.key }
+}
+
+/** 収集した色をスウォッチへ追加する（既存重複は無視・合計 maxCap 件まで） */
+fun Editor.addDocumentColorsToSwatches(maxCap: Int = 24): Int {
+    var added = 0
+    for (c in extractDocumentColors()) {
+        if (colorSwatches.size >= maxCap) break
+        if (c in colorSwatches) continue
+        colorSwatches.add(c)
+        rememberColor(c)
+        added++
+    }
+    return added
+}
+
+/**
+ * 選択要素だけを含む新しいドキュメントを作る（「選択をSVGで書き出し」用）。
+ * 親グループの絶対変換はコピーの transform に焼き込み、選択範囲のbboxをviewBoxにする。
+ */
+fun Editor.buildDocumentFromSelection(): dev.svgpro.core.model.SvgDocument? {
+    val items = selection.toList()
+    if (items.isEmpty()) return null
+    val b = trace.boundsOf(items) ?: return null
+    if (b.width <= 0 || b.height <= 0) return null
+    val n = dev.svgpro.core.util.Numbers
+    val newDoc = dev.svgpro.core.model.SvgDocument.create(
+        kotlin.math.ceil(b.width).coerceAtLeast(1.0),
+        kotlin.math.ceil(b.height).coerceAtLeast(1.0),
+    )
+    newDoc.root.setAttr(
+        "viewBox",
+        "${n.format(b.x)} ${n.format(b.y)} ${n.format(b.width)} ${n.format(b.height)}",
+    )
+    for (el in items) {
+        val copy = el.deepCopy()
+        // 元の親の絶対変換を焼き込む（新ドキュメントではルート直下に置くため）
+        val abs = trace.absOf(el)
+        copy.setAttr("transform", dev.svgpro.core.geom.Matrix.toSvgString(abs))
+        newDoc.root.children.add(copy)
+    }
+    return newDoc
+}
+
 /** グループ選択: 選択要素の最上位の親グループを選択 */
 fun Editor.selectParent() {
     val first = selection.firstOrNull() ?: return

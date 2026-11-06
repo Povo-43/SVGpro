@@ -56,6 +56,7 @@ import dev.svgpro.core.model.TextAttr
 import dev.svgpro.core.svg.Element
 import dev.svgpro.core.svg.TokenSource
 import dev.svgpro.editor.Editor
+import dev.svgpro.editor.buildDocumentFromSelection
 import dev.svgpro.editor.invertSelection
 import dev.svgpro.editor.swapFillStrokeSelection
 import dev.svgpro.editor.renderToBitmap
@@ -85,7 +86,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showMenu by remember { mutableStateOf(false) }
     var showNewDoc by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
-    var showPanel by remember { mutableStateOf<String?>(null) }
+    /** ドック式パネルのレイアウト状態（タブ化・表示切替・リサイズ） */
+    val dock = remember { DockState() }
     var showExportPng by remember { mutableStateOf(false) }
     var showReplaceColor by remember { mutableStateOf(false) }
     var showTransform by remember { mutableStateOf(false) }
@@ -115,13 +117,17 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     /** キャンバスビューの画面内位置（インラインテキスト入力の配置に使用） */
     var canvasOrigin by remember { mutableStateOf(Offset.Zero) }
 
+    /** 未保存のドキュメントタブを閉じる際の確認対象index */
+    var closeTabPending by remember { mutableStateOf<Int?>(null) }
+
     /** テキストインラインエディタのモード（null=非表示） */
     val textEditState = remember { mutableStateOf<TextEditMode?>(null) }
     var textEditMode by textEditState
 
-    // 自動バックアップ（クラッシュ復元用）
+    // 自動バックアップ（クラッシュ復元用）+ 最近使ったファイル復元
     LaunchedEffect(Unit) {
         vm.startAutosave(context)
+        vm.loadRecentFiles(context)
         if (vm.hasBackup) showRestoreConfirm = true
     }
 
@@ -194,6 +200,12 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
         }
     }
 
+    val exportSvgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/svg+xml")) { uri ->
+        if (uri != null) {
+            exportSelectionToUri(vm, uri, editor)
+        }
+    }
+
     val imageImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importImage(vm, uri)
     }
@@ -249,7 +261,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     ) {
         val isExpanded = maxWidth >= 840.dp
         val isMedium = !isExpanded && maxWidth >= 600.dp
-        val sheetMaxH = maxHeight * 0.44f
+        // 下部ドックの高さ上限（Column内から参照するため先に固定する）
+        val bottomDockMaxH = maxHeight * 0.72f
 
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             // このスコープでrefreshを購読する。BoxWithConstraintsはsubcompositionのため
@@ -273,8 +286,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onOpen = { openLauncher.launch(arrayOf("image/svg+xml", "text/plain", "text/xml", "*/*")) },
                 onSave = { doSave() },
                 onSaveAs = { createLauncher.launch(editor.documentName) },
-                onPanel = { name -> showPanel = if (showPanel == name) null else name },
-                activePanel = showPanel,
+                onPanel = { name -> dock.toggle(name) },
+                isPanelOpen = { id -> dock.isOpen(id) },
                 onFontManager = { showFontManager = true },
                 onTextCreate = { textEditMode = TextEditMode.Create(Vec(editor.viewportW / 2, editor.viewportH / 2)) },
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
@@ -283,7 +296,26 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
                 onCommandPalette = { showCommandPalette = true },
+                recentFiles = vm.recentFiles,
+                onOpenRecent = { uriStr -> openDocument(vm, android.net.Uri.parse(uriStr)) },
+                onExportSelection = { exportSvgLauncher.launch("selection.svg") },
+                onDuplicateDoc = { vm.duplicateDocumentInTab() },
             )
+
+        // ドキュメントタブ（複数ドキュメント管理。2枚以上で表示）
+        if (vm.docTabs.size > 1) {
+            DocumentTabBar(
+                vm = vm,
+                editor = editor,
+                refresh = refresh,
+                onSelect = { vm.switchDocTab(it) },
+                onCloseRequest = { i ->
+                    val dirty = if (i == vm.activeDocTab) editor.dirty else (vm.docTabs.getOrNull(i)?.snapshot?.dirty == true)
+                    if (dirty) closeTabPending = i else vm.closeDocTab(i)
+                },
+                onNew = { showNewDoc = true },
+            )
+        }
 
             // タブレット・デスクトップ向けPCライクメニューバー（拡張サイズ時のみ表示）
             if (isExpanded) {
@@ -320,9 +352,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     },
                     onShortcuts = { showShortcuts = true },
                     onFontToPath = { showFontToPath = true },
-                    onPanel = { name -> showPanel = if (showPanel == name) null else name },
-                )
-            }
+                    onPanel = { name -> dock.toggle(name) },
+                    isPanelOpen = { id -> dock.isOpen(id) },
+                    onExportSelection = { exportSvgLauncher.launch("selection.svg") },
+                )            }
 
             // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
             // こうするとpenDraftの変化がstrong skippingを介しても確実に反映される）
@@ -389,17 +422,17 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                         }
                     }
                 }
-                if (isExpanded) {
-                    SidePanel(
+                if (isExpanded && (animationMode || dock.groups.isNotEmpty())) {
+                    DockHost(
                         editor = editor,
                         refresh = refresh,
-                        panel = showPanel,
-                        onClose = { showPanel = null },
+                        dock = dock,
+                        animationMode = animationMode,
+                        onCloseAnimation = { editor.setAnimationMode(false) },
                         onSaveSwatches = onSaveSwatches,
                         onLoadSwatches = onLoadSwatches,
                         customFontFamilies = vm.loadedFontFamilies,
                         onShowFontManager = { showFontManager = true },
-                        animationMode = animationMode,
                         onReplaceColor = { showReplaceColor = true },
                     )
                 }
@@ -410,19 +443,19 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 ToolRail(editor, refresh, vertical = false)
             }
 
-            // compact / medium: ボトムシートパネル
-            if (!isExpanded && showPanel != null) {
-                SheetPanel(
+            // compact / medium: 下部ドック（タブ化・高さリサイズ可）
+            if (!isExpanded && (animationMode || dock.openPanels().isNotEmpty())) {
+                BottomDock(
                     editor = editor,
                     refresh = refresh,
-                    panel = showPanel,
-                    onClose = { showPanel = null },
-                    maxHeight = sheetMaxH,
+                    dock = dock,
+                    animationMode = animationMode,
+                    onCloseAnimation = { editor.setAnimationMode(false) },
+                    maxDp = bottomDockMaxH,
                     onSaveSwatches = onSaveSwatches,
                     onLoadSwatches = onLoadSwatches,
                     customFontFamilies = vm.loadedFontFamilies,
                     onShowFontManager = { showFontManager = true },
-                    animationMode = animationMode,
                     onReplaceColor = { showReplaceColor = true },
                 )
             }
@@ -438,7 +471,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             NewDocumentDialog(
                 onDismiss = { showNewDoc = false },
                 onCreate = { w, h ->
-                    editor.newDocument(w, h)
+                    vm.newDocument(w, h)
                     vm.currentUri = null
                     editor.documentName = "untitled.svg"
                     showNewDoc = false
@@ -591,7 +624,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgOptimize = { showSvgOptimize = true },
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
                 onExportPng = { pngLauncher.launch("export.png") },
-                onPanel = { name -> showPanel = name },
+                onExportSelection = { exportSvgLauncher.launch("selection.svg") },
+                onPanel = { name -> dock.toggle(name) },
             )
         }
 
@@ -625,6 +659,23 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 },
                 dismissButton = {
                     TextButton(onClick = { showExitConfirm = false }) { Text("キャンセル") }
+                },
+            )
+        }
+
+        if (closeTabPending != null) {
+            AlertDialog(
+                onDismissRequest = { closeTabPending = null },
+                title = { Text("未保存のドキュメント") },
+                text = { Text("このタブには未保存の変更があります。閉じてもよろしいですか？") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.closeDocTab(closeTabPending ?: 0)
+                        closeTabPending = null
+                    }) { Text("破棄して閉じる") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { closeTabPending = null }) { Text("キャンセル") }
                 },
             )
         }
@@ -689,6 +740,9 @@ private fun handleKey(editor: Editor, keyCode: Int, event: android.view.KeyEvent
             true
         }
         ctrl && keyCode == android.view.KeyEvent.KEYCODE_R -> { editor.showRulers = !editor.showRulers; editor.onChanged(); true }
+        // ビュー: Ctrl+0 全体表示 / Ctrl+1 100%
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_0 -> { editor.fitToPage(); true }
+        ctrl && keyCode == android.view.KeyEvent.KEYCODE_1 -> { editor.zoomTo100(); true }
         keyCode == android.view.KeyEvent.KEYCODE_V && !ctrl -> { editor.tool = ToolType.SELECT; true }
         keyCode == android.view.KeyEvent.KEYCODE_A && !ctrl -> { editor.tool = ToolType.NODE; true }
         keyCode == android.view.KeyEvent.KEYCODE_P && !ctrl -> { editor.tool = ToolType.PEN; true }
@@ -717,6 +771,75 @@ private fun nudge(editor: Editor, dx: Double, dy: Double) {
 
 // ―――― 上部バー ――――
 
+/** ドキュメントタブバー（複数ドキュメント管理） */
+@Composable
+private fun DocumentTabBar(
+    vm: EditorViewModel,
+    editor: Editor,
+    refresh: Int,
+    onSelect: (Int) -> Unit,
+    onCloseRequest: (Int) -> Unit,
+    onNew: () -> Unit,
+) {
+    // refreshによりdirty等の変化を反映
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            vm.docTabs.forEachIndexed { i, tab ->
+                val active = i == vm.activeDocTab
+                val dirty = if (active) editor.dirty else (tab.snapshot?.dirty == true)
+                Row(
+                    Modifier
+                        .padding(horizontal = 2.dp, vertical = 3.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (active) MaterialTheme.colorScheme.surfaceContainerHighest
+                            else androidx.compose.ui.graphics.Color.Transparent,
+                        )
+                        .clickable { onSelect(i) }
+                        .padding(start = 10.dp, end = 2.dp)
+                        .height(26.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (dirty) {
+                        Box(
+                            Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.secondary),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        tab.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 140.dp),
+                    )
+                    IconButton(onClick = { onCloseRequest(i) }, modifier = Modifier.size(20.dp)) {
+                        Icon(
+                            AppIcons.Close,
+                            contentDescription = "${tab.name} を閉じる",
+                            modifier = Modifier.size(11.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = onNew, modifier = Modifier.size(24.dp)) {
+                Icon(AppIcons.Plus, contentDescription = "新しいドキュメントタブ", modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
 @Composable
 private fun TopBar(
     editor: Editor,
@@ -733,7 +856,7 @@ private fun TopBar(
     onSave: () -> Unit,
     onSaveAs: () -> Unit,
     onPanel: (String) -> Unit,
-    activePanel: String?,
+    isPanelOpen: (String) -> Boolean,
     onFontManager: () -> Unit,
     onTextCreate: () -> Unit,
     onImageImport: () -> Unit,
@@ -742,6 +865,10 @@ private fun TopBar(
     onSvgSource: () -> Unit,
     onSvgOptimize: () -> Unit,
     onCommandPalette: () -> Unit,
+    recentFiles: List<Pair<String, String>> = emptyList(),
+    onOpenRecent: (String) -> Unit = {},
+    onExportSelection: () -> Unit = {},
+    onDuplicateDoc: () -> Unit = {},
 ) {
     // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
     // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
@@ -781,6 +908,23 @@ private fun TopBar(
                         onClick = { onMenuDismiss(); onNew() },
                     )
                     DropdownMenuItem(text = { Text("SVGを開く…") }, onClick = { onMenuDismiss(); onOpen() })
+                    if (recentFiles.isNotEmpty()) {
+                        HorizontalDivider()
+                        SectionTitle("最近使ったファイル")
+                        recentFiles.forEach { (name, uriStr) ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        name,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    )
+                                },
+                                leadingIcon = { Icon(AppIcons.Folder, null, modifier = Modifier.size(18.dp)) },
+                                onClick = { onMenuDismiss(); onOpenRecent(uriStr) },
+                            )
+                        }
+                    }
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("上書き保存") },
@@ -857,21 +1001,33 @@ private fun TopBar(
                     DropdownMenuItem(
                         text = { Text("レイヤー / オブジェクト") },
                         leadingIcon = { Icon(AppIcons.Layers, null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (isPanelOpen("layers")) Icon(AppIcons.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { onMenuDismiss(); onPanel("layers") },
                     )
                     DropdownMenuItem(
                         text = { Text("プロパティ") },
                         leadingIcon = { Icon(AppIcons.Palette, null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (isPanelOpen("props")) Icon(AppIcons.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { onMenuDismiss(); onPanel("props") },
                     )
                     DropdownMenuItem(
                         text = { Text("操作履歴") },
                         leadingIcon = { Icon(AppIcons.Edit, null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (isPanelOpen("history")) Icon(AppIcons.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { onMenuDismiss(); onPanel("history") },
                     )
                     DropdownMenuItem(
                         text = { Text("ナビゲーター") },
                         leadingIcon = { Icon(AppIcons.Navigator, null, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            if (isPanelOpen("navigator")) Icon(AppIcons.Check, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        },
                         onClick = { onMenuDismiss(); onPanel("navigator") },
                     )
                     HorizontalDivider()
@@ -903,7 +1059,7 @@ private fun TopBar(
                     DropdownMenuItem(text = { Text("ドキュメント設定…") }, onClick = { onMenuDismiss(); onSettings() })
                     DropdownMenuItem(
                         text = { Text("ドキュメント複製") },
-                        onClick = { onMenuDismiss(); editor.duplicateDocument() },
+                        onClick = { onMenuDismiss(); onDuplicateDoc() },
                     )
                     HorizontalDivider()
                     // 上級
@@ -917,6 +1073,12 @@ private fun TopBar(
                         text = { Text("SVG最適化・検証…") },
                         leadingIcon = { Icon(AppIcons.PathOps, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onSvgOptimize() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("選択をSVGで書き出し…") },
+                        leadingIcon = { Icon(AppIcons.Save, null, modifier = Modifier.size(18.dp)) },
+                        enabled = editor.selection.isNotEmpty(),
+                        onClick = { onMenuDismiss(); onExportSelection() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },
@@ -980,24 +1142,24 @@ private fun TopBar(
             BarDivider()
             BarIconButton(
                 AppIcons.Layers, "レイヤー",
-                description = "レイヤー / オブジェクトパネルを表示",
-                active = activePanel == "layers", onClick = { onPanel("layers") },
+                description = "レイヤー / オブジェクトパネルの表示を切り替え",
+                active = isPanelOpen("layers"), onClick = { onPanel("layers") },
             )
             BarIconButton(
                 AppIcons.Palette, "プロパティ",
                 description = "選択オブジェクトの塗り・線・テキスト等を編集",
-                active = activePanel == "props", onClick = { onPanel("props") },
+                active = isPanelOpen("props"), onClick = { onPanel("props") },
             )
             if (!compact) {
                 BarIconButton(
                     AppIcons.Edit, "履歴",
-                    description = "操作履歴パネルを表示",
-                    active = activePanel == "history", onClick = { onPanel("history") },
+                    description = "操作履歴パネルの表示を切り替え",
+                    active = isPanelOpen("history"), onClick = { onPanel("history") },
                 )
                 BarIconButton(
                     AppIcons.Navigator, "ナビゲーター",
                     description = "ドキュメント全体と表示範囲を確認・移動",
-                    active = activePanel == "navigator", onClick = { onPanel("navigator") },
+                    active = isPanelOpen("navigator"), onClick = { onPanel("navigator") },
                 )
             }
         }
@@ -1271,17 +1433,9 @@ private fun RailToggle(icon: ImageVector, desc: String, description: String? = n
 
 // ―――― パネル ――――
 
-@Composable
-private fun panelTitle(panel: String?): String = when (panel) {
-    "layers" -> "レイヤー / オブジェクト"
-    "history" -> "操作履歴"
-    "navigator" -> "ナビゲーター"
-    else -> "プロパティ"
-}
-
 /** 操作履歴パネル */
 @Composable
-private fun HistoryPanel(editor: Editor, refresh: Int) {
+internal fun HistoryPanel(editor: Editor, refresh: Int) {
     val stack = editor.undoStack
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(6.dp),
@@ -1356,7 +1510,7 @@ private fun HistoryPanel(editor: Editor, refresh: Int) {
 
 /** ナビゲーターパネル（ドキュメント概要＋ビューポート表示）。 */
 @Composable
-private fun NavigatorPanel(editor: Editor, refresh: Int) {
+internal fun NavigatorPanel(editor: Editor, refresh: Int) {
     val vb = editor.doc.viewBox
     val panelW = 220.dp
     val panelH = 150.dp
@@ -1458,143 +1612,6 @@ private fun NavigatorPanel(editor: Editor, refresh: Int) {
                             )
                             .padding(horizontal = 6.dp, vertical = 4.dp),
                     )
-                }
-            }
-        }
-    }
-}
-
-/** expanded時の右ドックパネル */
-@Composable
-private fun SidePanel(
-    editor: Editor,
-    refresh: Int,
-    panel: String?,
-    onClose: () -> Unit,
-    onSaveSwatches: () -> Unit,
-    onLoadSwatches: () -> Unit,
-    customFontFamilies: List<String>,
-    onShowFontManager: () -> Unit,
-    animationMode: Boolean = false,
-    onReplaceColor: (() -> Unit)? = null,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.width(UiMetrics.SidePanelWidth).fillMaxHeight(),
-    ) {
-        Column {
-            Row(
-                Modifier.fillMaxWidth().height(UiMetrics.PanelHeader).padding(start = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (animationMode) "アニメーション" else panelTitle(panel),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onClose, modifier = Modifier.size(UiMetrics.MiniButton)) {
-                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(14.dp))
-                }
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Box(Modifier.weight(1f)) {
-                if (animationMode) {
-                    AnimationPanel(
-                        editor = editor,
-                        refresh = refresh,
-                        onClose = { editor.setAnimationMode(false) },
-                    )
-                } else {
-                    when (panel) {
-                        "layers" -> LayersPanel(editor, refresh)
-                        "history" -> HistoryPanel(editor, refresh)
-                        "navigator" -> NavigatorPanel(editor, refresh)
-                        else -> PropertiesPanel(
-                            editor,
-                            refresh,
-                            onSaveSwatches,
-                            onLoadSwatches,
-                            customFontFamilies = customFontFamilies,
-                            onShowFontManager = onShowFontManager,
-                            onReplaceColor = onReplaceColor,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** compact / medium時のボトムシートパネル */
-@Composable
-private fun SheetPanel(
-    editor: Editor,
-    refresh: Int,
-    panel: String?,
-    onClose: () -> Unit,
-    maxHeight: androidx.compose.ui.unit.Dp,
-    onSaveSwatches: () -> Unit,
-    onLoadSwatches: () -> Unit,
-    customFontFamilies: List<String>,
-    onShowFontManager: () -> Unit,
-    animationMode: Boolean = false,
-    onReplaceColor: (() -> Unit)? = null,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp,
-        modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight),
-    ) {
-        Column {
-            // ハンドル + ヘッダー
-            Box(Modifier.fillMaxWidth().padding(top = 5.dp), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier
-                        .width(32.dp)
-                        .height(3.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
-                )
-            }
-            Row(
-                Modifier.fillMaxWidth().height(UiMetrics.PanelHeader).padding(start = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    if (animationMode) "アニメーション" else panelTitle(panel),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onClose, modifier = Modifier.size(UiMetrics.MiniButton)) {
-                    Icon(AppIcons.Close, "パネルを閉じる", modifier = Modifier.size(14.dp))
-                }
-            }
-            Box(Modifier.heightIn(max = maxHeight - 44.dp)) {
-                if (animationMode) {
-                    AnimationPanel(
-                        editor = editor,
-                        refresh = refresh,
-                        onClose = { editor.setAnimationMode(false) },
-                    )
-                } else {
-                    when (panel) {
-                        "layers" -> LayersPanel(editor, refresh)
-                        "history" -> HistoryPanel(editor, refresh)
-                        "navigator" -> NavigatorPanel(editor, refresh)
-                        else -> PropertiesPanel(
-                            editor,
-                            refresh,
-                            onSaveSwatches,
-                            onLoadSwatches,
-                            customFontFamilies = customFontFamilies,
-                            onShowFontManager = onShowFontManager,
-                            onReplaceColor = onReplaceColor,
-                        )
-                    }
                 }
             }
         }
@@ -1798,8 +1815,20 @@ fun openDocument(vm: EditorViewModel, uri: android.net.Uri) {
         val doc = dev.svgpro.core.svg.SvgLoader.load(::tokenSourceOf, text)
         if (doc != null) {
             val name = uri.lastPathSegment?.substringAfterLast('/') ?: "untitled.svg"
-            vm.editor.loadDocument(doc, name)
-            vm.currentUri = uri
+            // 新しいタブとして開く（既存セッションは退避される）
+            vm.openDocumentInTab(doc, name, uri)
+            // 後日の「最近使ったファイル」から再オープンできるよう権限を保持
+            try {
+                resolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (e: Exception) {
+                // 永続権限がないプロバイダは無視
+            }
+            dev.svgpro.AppContextHolder.get()?.let { ctx ->
+                vm.recordRecentFile(ctx, name, uri)
+            }
         }
     } catch (e: Exception) {
         e.printStackTrace()
@@ -1818,6 +1847,21 @@ fun saveToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor): Boolea
             } else {
                 out.write(bytes)
             }
+        } ?: return false
+        true
+    } catch (e: Exception) {
+        e.printStackTrace()
+        false
+    }
+}
+
+/** 選択要素だけを新しいSVGドキュメントとして書き出す */
+fun exportSelectionToUri(vm: EditorViewModel, uri: android.net.Uri, editor: Editor): Boolean {
+    return try {
+        val doc = editor.buildDocumentFromSelection() ?: return false
+        val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver ?: return false
+        resolver.openOutputStream(uri, "wt")?.use { out ->
+            out.write(doc.serialize().toByteArray(Charsets.UTF_8))
         } ?: return false
         true
     } catch (e: Exception) {
@@ -1866,6 +1910,7 @@ private fun CommandPalette(
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
+    onExportSelection: () -> Unit = {},
     onPanel: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -1879,6 +1924,7 @@ private fun CommandPalette(
         onSvgOptimize = onSvgOptimize,
         onImageImport = onImageImport,
         onExportPng = onExportPng,
+        onExportSelection = onExportSelection,
         onPanel = onPanel,
     )
     val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
@@ -1939,6 +1985,7 @@ private fun commandList(
     onSvgOptimize: () -> Unit,
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
+    onExportSelection: () -> Unit = {},
     onPanel: (String) -> Unit,
 ): List<Triple<String, String, () -> Unit>> {
     return listOf(
@@ -1980,6 +2027,7 @@ private fun commandList(
         Triple("SVG最適化・検証…", "") { onSvgOptimize() },
         Triple("画像をインポート…", "") { onImageImport() },
         Triple("PNG書き出し…", "") { onExportPng() },
+        Triple("選択をSVGで書き出し…", "") { onExportSelection() },
     )
 }
 

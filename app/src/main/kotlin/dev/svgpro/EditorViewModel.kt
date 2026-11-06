@@ -5,6 +5,8 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
@@ -25,12 +27,28 @@ import java.io.File
 /**
  * 編集セッションの状態保持（回転・プロセス維持でドキュメントを失わない）。
  * さらに、自動バックアップ（クラッシュ復元用）を定期保存する。
+ *
+ * 複数ドキュメント: タブ単位でセッション（doc+Undo+選択+ビュー）を退避し、
+ * Editor 1インスタンスに差し替えて切り替える。
  */
 class EditorViewModel : ViewModel() {
 
     val editor = Editor()
 
-    var currentUri: Uri? = null
+    // ―――― ドキュメントタブ（複数ドキュメント管理） ――――
+
+    /** 開いているドキュメントのタブ。アクティブ1件のみ snapshot=null（Editorに実体あり） */
+    class DocTab {
+        var name: String = "untitled.svg"
+        var uri: Uri? = null
+        var snapshot: Editor.SessionSnapshot? = null
+    }
+
+    val docTabs = mutableStateListOf<DocTab>()
+
+    /** アクティブタブのindex（常に docTabs.indices 内） */
+    var activeDocTab by androidx.compose.runtime.mutableStateOf(0)
+        private set
 
     /** 復元可能なバックアップの有無（起動時に確認） */
     var hasBackup: Boolean = false
@@ -39,6 +57,7 @@ class EditorViewModel : ViewModel() {
     private var backupJob: kotlinx.coroutines.Job? = null
 
     init {
+        docTabs.add(DocTab())
         // テキスト測定（ヒットテスト/選択枠用）
         TextMetrics.provider = { el ->
             measureText(el)
@@ -50,6 +69,147 @@ class EditorViewModel : ViewModel() {
         editor.typefaceResolver = { el ->
             resolveTypeface(el)
         }
+    }
+
+    /** 現タブの保存先URI。既存コード互換のため currentUri プロパティとして維持 */
+    var currentUri: Uri?
+        get() = docTabs.getOrNull(activeDocTab)?.uri
+        set(value) {
+            docTabs.getOrNull(activeDocTab)?.uri = value
+        }
+
+    /** 現在のセッションをタブへ退避する（切替・新規作成・ファイルオープンの前に行う） */
+    private fun pushCurrentSession() {
+        val t = docTabs.getOrNull(activeDocTab) ?: return
+        if (t.snapshot == null) {
+            t.snapshot = editor.exportSession()
+        }
+        t.name = editor.documentName
+    }
+
+    /** タブを切り替える */
+    fun switchDocTab(index: Int) {
+        if (index !in docTabs.indices || index == activeDocTab) return
+        pushCurrentSession()
+        val t = docTabs[index]
+        val snap = t.snapshot ?: return
+        editor.importSession(snap)
+        t.snapshot = null
+        activeDocTab = index
+    }
+
+    /** タブを閉じる（最後の1枚は空ドキュメントに戻す） */
+    fun closeDocTab(index: Int) {
+        if (index !in docTabs.indices) return
+        if (docTabs.size == 1) {
+            val t = docTabs[0]
+            t.name = "untitled.svg"
+            t.uri = null
+            t.snapshot = null
+            activeDocTab = 0
+            editor.newDocument(512.0, 512.0)
+            return
+        }
+        val wasActive = index == activeDocTab
+        if (wasActive) pushCurrentSession()
+        docTabs.removeAt(index)
+        if (wasActive) {
+            val ni = index.coerceIn(0, docTabs.lastIndex)
+            activeDocTab = ni
+            val t = docTabs[ni]
+            t.snapshot?.let { editor.importSession(it) }
+            t.snapshot = null
+        } else if (index < activeDocTab) {
+            activeDocTab -= 1
+        }
+    }
+
+    /** 開いたSVGを新しいタブとして開く */
+    fun openDocumentInTab(doc: SvgDocument, name: String, uri: Uri?) {
+        pushCurrentSession()
+        val t = DocTab().apply {
+            this.name = name
+            this.uri = uri
+        }
+        docTabs.add(t)
+        activeDocTab = docTabs.lastIndex
+        editor.loadDocument(doc, name)
+    }
+
+    /** 新規ドキュメントを新しいタブとして作る */
+    fun newDocumentInTab(w: Double, h: Double) {
+        pushCurrentSession()
+        docTabs.add(DocTab())
+        activeDocTab = docTabs.lastIndex
+        editor.newDocument(w, h)
+    }
+
+    /** アクティブタブが「触っていない空ドキュメント」か（タブを増やさず差し替えてよい状態） */
+    private fun isActiveTabFresh(): Boolean =
+        !editor.dirty && editor.documentName == "untitled.svg" && docTabs.size == 1 && currentUri == null
+
+    /** 新規ドキュメント: 触っていない初期タブなら差し替え、そうでなければ新しいタブへ */
+    fun newDocument(w: Double, h: Double) {
+        if (isActiveTabFresh()) {
+            editor.newDocument(w, h)
+        } else {
+            newDocumentInTab(w, h)
+        }
+    }
+
+    /** 現在のドキュメントを複製して新しいタブで開く（履歴・選択も複製） */
+    fun duplicateDocumentInTab() {
+        pushCurrentSession()
+        docTabs.add(DocTab())
+        activeDocTab = docTabs.lastIndex
+        val snap = editor.exportSession()
+        editor.importSession(snap)
+        editor.documentName = if (editor.documentName.endsWith(".svg")) {
+            editor.documentName.substringBeforeLast(".") + "_copy.svg"
+        } else {
+            editor.documentName + "_copy.svg"
+        }
+        docTabs[activeDocTab].name = editor.documentName
+    }
+
+    // ―――― 最近使ったファイル ――――
+
+    /** 最近使ったファイル（name to uri文字列）。新しいものが先頭・最大8件 */
+    val recentFiles = mutableStateListOf<Pair<String, String>>()
+
+    fun loadRecentFiles(context: Context) {
+        recentFiles.clear()
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val json = prefs.getString(KEY_RECENT, null) ?: return
+            val arr = dev.svgpro.core.util.Json.parse(json) as? List<*> ?: return
+            for (item in arr) {
+                val m = item as? Map<*, *> ?: continue
+                val name = m["name"]?.toString() ?: continue
+                val uri = m["uri"]?.toString() ?: continue
+                recentFiles.add(name to uri)
+            }
+        } catch (e: Exception) {
+            // 復元失敗時は空のまま
+        }
+    }
+
+    fun recordRecentFile(context: Context, name: String, uri: Uri) {
+        val key = uri.toString()
+        recentFiles.removeAll { it.second == key }
+        recentFiles.add(0, name to key)
+        while (recentFiles.size > 8) recentFiles.removeAt(recentFiles.lastIndex)
+        try {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val arr = recentFiles.map { (n, u) -> mapOf("name" to n, "uri" to u) }
+            prefs.edit().putString(KEY_RECENT, dev.svgpro.core.util.Json.stringify(arr)).apply()
+        } catch (e: Exception) {
+        }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "svgpro_ui"
+        private const val KEY_RECENT = "recent_files"
     }
 
     /** 自動バックアップ開始（30秒間隔・未保存の編集がある場合のみ） */
@@ -82,6 +242,7 @@ class EditorViewModel : ViewModel() {
             val doc = dev.svgpro.core.svg.SvgLoader.load({ tokenSourceOf(text) }, text)
             if (doc != null) {
                 editor.loadDocument(doc, "restored.svg")
+                docTabs.firstOrNull()?.name = "restored.svg"
                 true
             } else false
         } catch (e: Exception) {

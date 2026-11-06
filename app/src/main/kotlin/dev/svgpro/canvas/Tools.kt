@@ -435,6 +435,31 @@ class ToolController(val editor: Editor) {
                     return
                 }
             }
+            // ドラフト継続中はセグメント追加へ（onPenUpで処理）
+            return
+        }
+        // 既存パスの端点近くをタップ → そのパスを取り込んで続きを描く
+        //（旧来は未実装で、端点接続やノード追加で代用していた）
+        val hit = editor.trace.hitTest(user, 10.0 / editor.zoom)
+        if (hit != null && hit.tag == "path" && editor.isEditable()) {
+            val pd = PathData.parse(hit.attr("d"))
+            if (pd != null && pd.segs.isNotEmpty()) {
+                val startPt = (pd.segs.firstOrNull() as? Seg.Move)?.let { Vec(it.x, it.y) }
+                val endPt = anchorOf(pd)
+                val nearest = listOfNotNull(startPt, endPt).minByOrNull { it.distanceTo(user) }
+                if (nearest != null && nearest.distanceTo(user) * editor.zoom < 14.0) {
+                    var pd2 = PathData(pd.segs.toMutableList())
+                    if (nearest == startPt && startPt != endPt) {
+                        // 継続は常に終端から。始点側をタップした場合は向きを反転してから取り込む
+                        pd2 = pd.reversed()
+                    }
+                    editor.penContinueTarget = hit
+                    editor.penDraft = pd2
+                    penLastOut = null
+                    editor.onChanged()
+                    return
+                }
+            }
         }
     }
 
