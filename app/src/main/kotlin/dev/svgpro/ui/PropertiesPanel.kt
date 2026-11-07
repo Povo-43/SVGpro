@@ -569,6 +569,11 @@ private fun StrokeTabContent(
                 SelectChip(label, active = false, enabled = hasSel) { editor.applyStrokeJoinToSelection(v) }
             }
         }
+        // マイターリミット
+        var miterText by remember { mutableStateOf("4") }
+        NumberField("マイターリミット", miterText, { miterText = it }, {
+            dev.svgpro.core.util.Numbers.parse(miterText)?.let { editor.applyStrokeMiterLimitToSelection(it) }
+        }, width = 56.dp)
         ChipRow {
             listOf("center" to "中央", "inside" to "内側", "outside" to "外側").forEach { (v, label) ->
                 val selected = hasSel && editor.selectionStrokeAlignment() == v

@@ -2489,6 +2489,25 @@ class Editor {
         }
     }
 
+    /** マイターリミットを選択要素に設定。 */
+    fun applyStrokeMiterLimitToSelection(limit: Double) {
+        if (selection.isEmpty()) return
+        commit("stroke-miterlimit") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                StyleUtil.setProperty(el, "stroke-miterlimit", dev.svgpro.core.util.Numbers.format(limit.coerceIn(1.0, 100.0)))
+            }
+        }
+    }
+
+    /** 選択要素のマイターリミットを取得（未設定なら 4.0）。 */
+    fun selectionStrokeMiterLimit(): Double {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(v, "stroke-miterlimit")
+            if (s == null) 4.0 else dev.svgpro.core.util.Numbers.parse(s) ?: 4.0
+        } ?: 4.0
+    }
+
     fun applyDashToSelection(dash: List<Double>?) {
         if (selection.isEmpty()) return
         commit("stroke-dasharray") { batch ->
