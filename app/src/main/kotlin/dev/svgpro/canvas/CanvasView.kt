@@ -78,6 +78,9 @@ class CanvasView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 1f
     }
+    private val pageBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
     private val gridPaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
@@ -137,6 +140,7 @@ class CanvasView @JvmOverloads constructor(
     private fun applyTheme(dark: Boolean) {
         val c = if (dark) CanvasTheme.Dark else CanvasTheme.Light
         pageBorderPaint.color = c.pageBorder
+        pageBackgroundPaint.color = editor.pageBackgroundColor
         gridPaint.color = c.grid
         pixelGridPaint.color = c.pixelGrid
         selectionBoxPaint.color = c.selection
@@ -479,7 +483,7 @@ class CanvasView @JvmOverloads constructor(
 
         // ページ背景（市松模様）
         canvas.drawRect(pageScreen, checkerPaint)
-        canvas.drawRect(pageScreen, whitePaint)
+        canvas.drawRect(pageScreen, pageBackgroundPaint)
 
         // ドキュメント描画。
         // drawItemが要素ごとに「ローカル→user(abs)→画面(viewMatrix)」の完全な行列を

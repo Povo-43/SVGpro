@@ -970,6 +970,23 @@ fun DocumentSettingsDialog(
     val vb = editor.doc.viewBox
     var wText by remember { mutableStateOf(dev.svgpro.core.util.Numbers.format(vb.width)) }
     var hText by remember { mutableStateOf(dev.svgpro.core.util.Numbers.format(vb.height)) }
+    var pageBgColorDialog by remember { mutableStateOf(false) }
+    var pageBgColor by remember { mutableStateOf(editor.pageBackgroundColor) }
+    var colorDialogTarget by remember { mutableStateOf<String?>(null) }
+
+    // ページ背景色ピッカー
+    if (pageBgColorDialog) {
+        ColorPickerDialog(
+            title = "ページ背景色",
+            initial = pageBgColor,
+            onDismiss = { pageBgColorDialog = false },
+        ) { argb ->
+            pageBgColor = argb
+        }
+    }
+    LaunchedEffect(editor.pageBackgroundColor) {
+        pageBgColor = editor.pageBackgroundColor
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("ドキュメント設定") },
@@ -993,6 +1010,27 @@ fun DocumentSettingsDialog(
                     )
                 }
                 Text("変更するとviewBoxとページサイズが更新されます", style = MaterialTheme.typography.bodySmall)
+                // ページ背景色
+                var pageBgColor by remember { mutableStateOf(editor.pageBackgroundColor) }
+                LaunchedEffect(editor.pageBackgroundColor) {
+                    pageBgColor = editor.pageBackgroundColor
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("ページ背景色", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(80.dp))
+                    Box(
+                        Modifier
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(pageBgColor))
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                            .clickable {
+                                colorDialogTarget = "pageBg"
+                            },
+                    )
+                    TextButton(onClick = {
+                        colorDialogTarget = "pageBg"
+                    }) { Text("色選択", style = MaterialTheme.typography.labelSmall) }
+                }
                 // グリッド設定
                 var gridOn by remember { mutableStateOf(editor.showGrid) }
                 var snapOn by remember { mutableStateOf(editor.snapToGrid) }
@@ -1228,11 +1266,27 @@ fun DocumentSettingsDialog(
                     }
                     editor.fitToPage()
                 }
+                editor.commit("page background color") { batch ->
+                    batch.touch(editor.doc.root)
+                    editor.pageBackgroundColor = pageBgColor
+                }
                 onDismiss()
             }) { Text("OK") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )
+
+    // ページ背景色ピッカー
+    colorDialogTarget?.let { target ->
+        ColorPickerDialog(
+            title = "ページ背景色",
+            initial = pageBgColor,
+            onDismiss = { colorDialogTarget = null },
+        ) { argb ->
+            pageBgColor = argb
+            colorDialogTarget = null
+        }
+    }
 }
 
 /**

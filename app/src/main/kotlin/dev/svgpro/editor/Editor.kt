@@ -1323,6 +1323,9 @@ class Editor {
     /** セーフエリア表示（ページ内90%領域）。 */
     var showSafeArea by mutableStateOf(false)
 
+    /** ページの背景色。 */
+    var pageBackgroundColor by mutableStateOf(0xFFFFFFFF.toInt())
+
     /** ルーラー単位（user=pxを基準にDPIで物理単位へ換算）。 */
     var rulerUnit by mutableStateOf(RulerUnit.PX)
     /** DPI（user単位→物理長さの換算基準。SVGの1ユーザ単位=1/96インチを既定とする）。 */
