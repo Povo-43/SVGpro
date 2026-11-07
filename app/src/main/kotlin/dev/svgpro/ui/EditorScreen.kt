@@ -2210,6 +2210,8 @@ private fun commandList(
         Triple("コピー", "Ctrl+C") { editor.copySelection() },
         Triple("カット", "Ctrl+X") { editor.cutSelection() },
         Triple("ペースト", "Ctrl+V") { editor.pasteFromClipboard(inPlace = false) },
+        Triple("前面にペースト", "") { editor.pasteFromClipboard(inPlace = true, toFront = true) },
+        Triple("背面にペースト", "") { editor.pasteFromClipboard(inPlace = true, toFront = false) },
         Triple("削除", "Delete") { editor.deleteSelection() },
         Triple("複製", "Ctrl+D") { editor.duplicateSelection() },
         Triple("全選択", "Ctrl+A") {

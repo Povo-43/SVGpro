@@ -840,14 +840,17 @@ fun TransformDialog(editor: dev.svgpro.editor.Editor, onDismiss: () -> Unit) {
     var rot by remember { mutableStateOf("0") }
     var skewX by remember { mutableStateOf("0") }
     var skewY by remember { mutableStateOf("0") }
+    var keepAspect by remember { mutableStateOf(false) }
     val cx = b?.centerX ?: 0.0
     val cy = b?.centerY ?: 0.0
 
     fun applyOp(duplicate: Boolean) {
         val dxv = dev.svgpro.core.util.Numbers.parse(dx) ?: 0.0
         val dyv = dev.svgpro.core.util.Numbers.parse(dy) ?: 0.0
-        val sxv = (dev.svgpro.core.util.Numbers.parse(sx) ?: 100.0) / 100.0
-        val syv = (dev.svgpro.core.util.Numbers.parse(sy) ?: 100.0) / 100.0
+        val sxRaw = dev.svgpro.core.util.Numbers.parse(sx) ?: 100.0
+        val syRaw = dev.svgpro.core.util.Numbers.parse(sy) ?: 100.0
+        val sxv = sxRaw / 100.0
+        val syv = if (keepAspect) sxv else syRaw / 100.0
         val rotv = dev.svgpro.core.util.Numbers.parse(rot) ?: 0.0
         val skx = dev.svgpro.core.util.Numbers.parse(skewX) ?: 0.0
         val sky = dev.svgpro.core.util.Numbers.parse(skewY) ?: 0.0
@@ -887,6 +890,10 @@ fun TransformDialog(editor: dev.svgpro.editor.Editor, onDismiss: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = sx, onValueChange = { sx = it }, label = { Text("拡縮X%") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = sy, onValueChange = { sy = it }, label = { Text("拡縮Y%") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Checkbox(checked = keepAspect, onCheckedChange = { keepAspect = it })
+                    Text("縦横比固定", style = MaterialTheme.typography.bodySmall)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = rot, onValueChange = { rot = it }, label = { Text("回転°") }, modifier = Modifier.weight(1f), singleLine = true)
