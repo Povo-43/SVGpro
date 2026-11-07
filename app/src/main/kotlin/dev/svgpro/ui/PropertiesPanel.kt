@@ -700,6 +700,25 @@ private fun TextTabContent(
                 }
             }
         })
+        // テキストボックス幅・高さ（自動折り返しに使用）
+        var tbwText by remember(el) { mutableStateOf(el.attr("width") ?: "") }
+        var tbhText by remember(el) { mutableStateOf(el.attr("height") ?: "") }
+        NumberField("テキストボックス幅", tbwText, { tbwText = it }, {
+            dev.svgpro.core.util.Numbers.parse(tbwText)?.let { v ->
+                editor.commit("text-box-width") { batch ->
+                    batch.touch(el)
+                    StyleUtil.setProperty(el, "width", dev.svgpro.core.util.Numbers.format(v))
+                }
+            }
+        }, width = 56.dp)
+        NumberField("テキストボックス高さ", tbhText, { tbhText = it }, {
+            dev.svgpro.core.util.Numbers.parse(tbhText)?.let { v ->
+                editor.commit("text-box-height") { batch ->
+                    batch.touch(el)
+                    StyleUtil.setProperty(el, "height", dev.svgpro.core.util.Numbers.format(v))
+                }
+            }
+        }, width = 56.dp)
         ChipRow {
             val curWeight = StyleUtil.getProperty(el, "font-weight") ?: "normal"
             listOf("normal" to "通常", "bold" to "太字", "600" to "600", "900" to "900").forEach { (v, label) ->
