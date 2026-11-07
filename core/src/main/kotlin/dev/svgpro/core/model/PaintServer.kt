@@ -235,3 +235,112 @@ object PatternUtil {
         else pattern.setAttr("patternTransform", parts.joinToString(" "))
     }
 }
+
+/**
+ * メッシュグラデーションモデル。
+ * rows x cols のグリッド上の色を保持し、バイリニア補間で任意位置の色を算出する。
+ * SVG 2 の <meshgradient> に準拠した独自拡張形式で保存する。
+ */
+class MeshGradientModel(
+    val def: dev.svgpro.core.svg.Element,
+) {
+    class MeshStop(var x: Double, var y: Double, var argb: Int)
+
+    val stops = ArrayList<MeshStop>()
+    var rows = 2
+    var cols = 2
+
+    val id: String get() = def.attr("id") ?: ""
+
+    init {
+        read()
+    }
+
+    /** Element → モデル */
+    fun read() {
+        rows = dev.svgpro.core.util.Numbers.parse(def.attr("mesh-rows"))?.toInt() ?: 2
+        cols = dev.svgpro.core.util.Numbers.parse(def.attr("mesh-cols"))?.toInt() ?: 2
+        stops.clear()
+        for (child in def.childElements()) {
+            if (child.tag != "meshStop") continue
+            val x = dev.svgpro.core.util.Numbers.parse(StyleUtil.getProperty(child, "x")) ?: 0.0
+            val y = dev.svgpro.core.util.Numbers.parse(StyleUtil.getProperty(child, "y")) ?: 0.0
+            val color = dev.svgpro.core.model.Color.parse(StyleUtil.getProperty(child, "stop-color")) ?: 0xFF000000.toInt()
+            stops.add(MeshStop(x.coerceIn(0.0, 1.0), y.coerceIn(0.0, 1.0), color))
+        }
+        if (stops.isEmpty()) {
+            // デフォルト: 4 コーナーのシンプルメッシュ
+            stops.add(MeshStop(0.0, 0.0, 0xFF42A5F5.toInt()))
+            stops.add(MeshStop(1.0, 0.0, 0xFFE8A33D.toInt()))
+            stops.add(MeshStop(0.0, 1.0, 0xFF9B5DE5.toInt()))
+            stops.add(MeshStop(1.0, 1.0, 0xFFE03E3E.toInt()))
+        }
+    }
+
+    /** モデル → Element */
+    fun write() {
+        def.setAttr("mesh-rows", dev.svgpro.core.util.Numbers.format(rows.toDouble()))
+        def.setAttr("mesh-cols", dev.svgpro.core.util.Numbers.format(cols.toDouble()))
+        // 既存meshStopを削除
+        val removed = ArrayList<dev.svgpro.core.svg.Element>()
+        for (c in def.children.filterIsInstance<dev.svgpro.core.svg.Element>()) {
+            if (c.tag == "meshStop") removed.add(c)
+        }
+        for (c in removed) def.children.remove(c)
+        for (s in stops) {
+            val st = dev.svgpro.core.svg.Element("meshStop")
+            st.setAttr("x", dev.svgpro.core.util.Numbers.format(s.x))
+            st.setAttr("y", dev.svgpro.core.util.Numbers.format(s.y))
+            st.setAttr("stop-color", dev.svgpro.core.model.Color.css(s.argb))
+            def.children.add(st)
+        }
+    }
+
+    /**
+     * 指定位置 (ux, uy in [0,1]) における色をバイリニア補間で算出。
+     */
+    fun colorAt(ux: Double, uy: Double): Int {
+        if (stops.isEmpty()) return 0xFF000000.toInt()
+        if (stops.size == 1) return stops[0].argb
+
+        // グリッド位置を算出
+        val gx = ux * (cols - 1)
+        val gy = uy * (rows - 1)
+        val x0 = gx.toInt().coerceIn(0, cols - 2)
+        val y0 = gy.toInt().coerceIn(0, rows - 2)
+        val x1 = (x0 + 1).coerceIn(0, cols - 1)
+        val y1 = (y0 + 1).coerceIn(0, rows - 1)
+
+        val tx = gx - x0
+        val ty = gy - y0
+
+        fun stopAt(cx: Int, cy: Int): Int {
+            val idx = cy * cols + cx
+            return if (idx < stops.size) stops[idx].argb else stops.last().argb
+        }
+
+        val c00 = stopAt(x0, y0)
+        val c10 = stopAt(x1, y0)
+        val c01 = stopAt(x0, y1)
+        val c11 = stopAt(x1, y1)
+
+        val ar = (c00 shr 16) and 0xFF; val ag = (c00 shr 8) and 0xFF; val ab = c00 and 0xFF; val aa = (c00 ushr 24) and 0xFF
+        val br = (c10 shr 16) and 0xFF; val bg = (c10 shr 8) and 0xFF; val bb = c10 and 0xFF; val ba = (c10 ushr 24) and 0xFF
+        val cr = (c01 shr 16) and 0xFF; val cg = (c01 shr 8) and 0xFF; val cb = c01 and 0xFF; val ca = (c01 ushr 24) and 0xFF
+        val dr = (c11 shr 16) and 0xFF; val dg = (c11 shr 8) and 0xFF; val db = c11 and 0xFF; val da = (c11 ushr 24) and 0xFF
+
+        val r = (ar + (br - ar) * tx + (cr - ar) * ty + (ar - br - cr + dr) * tx * ty).toInt()
+        val g = (ag + (bg - ag) * tx + (cg - ag) * ty + (ag - bg - cg + dg) * tx * ty).toInt()
+        val b = (ab + (bb - ab) * tx + (cb - ab) * ty + (ab - bb - cb + db) * tx * ty).toInt()
+        val a = (aa + (ba - aa) * tx + (ca - aa) * ty + (aa - ba - ca + da) * tx * ty).toInt()
+
+        return (a shl 24) or (r shl 16) or (g shl 8) or b
+    }
+
+    companion object {
+        fun of(def: dev.svgpro.core.svg.Element): MeshGradientModel? = when (def.tag) {
+            "meshGradient" -> MeshGradientModel(def)
+            else -> null
+        }
+    }
+}

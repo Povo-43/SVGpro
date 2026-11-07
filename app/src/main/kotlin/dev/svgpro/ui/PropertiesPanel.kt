@@ -811,6 +811,30 @@ private fun EffectsTabContent(
         NumberField("光彩", glowText, { glowText = it }, {
             dev.svgpro.core.util.Numbers.parse(glowText)?.let { editor.applyEffectGlowToSelection(it, 0xFFFFFF80.toInt()) }
         }, width = 56.dp)
+        // 内側シャドウ
+        var innerShadowText by remember {
+            mutableStateOf(
+                editor.selectionEffectInnerShadow()?.let { (dx, dy, blur) ->
+                    "${dev.svgpro.core.util.Numbers.format(dx)} ${dev.svgpro.core.util.Numbers.format(dy)} ${dev.svgpro.core.util.Numbers.format(blur)}"
+                } ?: "4 4 8",
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("内影", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(38.dp))
+            OutlinedTextField(
+                value = innerShadowText,
+                onValueChange = { innerShadowText = it },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+            )
+            TextButton(onClick = {
+                val parts = innerShadowText.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+                if (parts.size >= 3) {
+                    editor.applyEffectInnerShadowToSelection(parts[0], parts[1], parts[2], 0xFF000000.toInt())
+                }
+            }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+        }
         // 色調プリセット
         SectionTitle("色調")
         ChipRow {

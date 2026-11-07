@@ -58,6 +58,7 @@ fun MenuBar(
     onStylePreset: () -> Unit = {},
     onBrushPreset: () -> Unit = {},
     onShortcutCustomize: () -> Unit = {},
+    onObjectSearch: () -> Unit = {},
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -163,6 +164,7 @@ fun MenuBar(
                     HorizontalDivider()
                     MenuDropdownItem("ショートカット一覧", { onShortcuts() })
                     MenuDropdownItem("ショートカットのカスタマイズ…", { onShortcutCustomize() })
+                    MenuDropdownItem("オブジェクト検索…", { onObjectSearch() })
                 }
             }
             MenuItem("ヘルプ") {

@@ -60,6 +60,7 @@ import dev.svgpro.editor.buildDocumentFromSelection
 import dev.svgpro.editor.invertSelection
 import dev.svgpro.editor.swapFillStrokeSelection
 import dev.svgpro.editor.renderToBitmap
+import dev.svgpro.editor.exportPdfToUri
 import dev.svgpro.editor.selectSameFill
 import dev.svgpro.editor.selectSameStroke
 import dev.svgpro.editor.selectSameKind
@@ -115,6 +116,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showRestoreConfirm by remember { mutableStateOf(false) }
     var showDocSettings by remember { mutableStateOf(false) }
     var showGuideCreate by remember { mutableStateOf(false) }
+    var showObjectSearch by remember { mutableStateOf(false) }
+    var showSvgAttributeEdit by remember { mutableStateOf(false) }
 
     /** キャンバスビューの画面内位置（インラインテキスト入力の配置に使用） */
     var canvasOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -204,6 +207,13 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     val exportSvgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/svg+xml")) { uri ->
         if (uri != null) {
             exportSelectionToUri(vm, uri, editor)
+        }
+    }
+
+    val pdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) {
+            val vb = editor.doc.viewBox
+            editor.exportPdfToUri(uri, vb.width.toInt().coerceAtLeast(100), vb.height.toInt().coerceAtLeast(100))
         }
     }
 
@@ -323,6 +333,9 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onStylePreset = { showStylePreset = true },
                 onBrushPreset = { showBrushPreset = true },
                 onShortcutCustomize = { showShortcutCustomize = true },
+                onObjectSearch = { showObjectSearch = true },
+                onSvgAttributeEdit = { showSvgAttributeEdit = true },
+                onExportPdf = { pdfLauncher.launch("document.pdf") },
                 recentFiles = vm.recentFiles,
                 onOpenRecent = { uriStr -> openDocument(vm, android.net.Uri.parse(uriStr)) },
                 onExportSelection = { exportSvgLauncher.launch("selection.svg") },
@@ -505,6 +518,14 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             GuideCreateDialog(editor = editor, onDismiss = { showGuideCreate = false })
         }
 
+        if (showObjectSearch) {
+            ObjectSearchDialog(editor = editor, onDismiss = { showObjectSearch = false })
+        }
+
+        if (showSvgAttributeEdit) {
+            SvgAttributeDialog(editor = editor, onDismiss = { showSvgAttributeEdit = false })
+        }
+
         if (showNewDoc) {
             NewDocumentDialog(
                 onDismiss = { showNewDoc = false },
@@ -671,6 +692,8 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onStylePreset = { showStylePreset = true },
                 onBrushPreset = { showBrushPreset = true },
                 onShortcutCustomize = { showShortcutCustomize = true },
+                onObjectSearch = { showObjectSearch = true },
+                onSvgAttributeEdit = { showSvgAttributeEdit = true },
                 onPanel = { name -> dock.toggle(name) },
             )
         }
@@ -924,6 +947,9 @@ private fun TopBar(
     onStylePreset: () -> Unit = {},
     onBrushPreset: () -> Unit = {},
     onShortcutCustomize: () -> Unit = {},
+    onObjectSearch: () -> Unit = {},
+    onSvgAttributeEdit: () -> Unit = {},
+    onExportPdf: () -> Unit = {},
 ) {
     // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
     // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
@@ -1144,6 +1170,11 @@ private fun TopBar(
                         leadingIcon = { Icon(AppIcons.Save, null, modifier = Modifier.size(18.dp)) },
                         enabled = editor.selection.isNotEmpty(),
                         onClick = { onMenuDismiss(); onExportSelection() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("PDF書き出し…") },
+                        leadingIcon = { Icon(AppIcons.Save, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onExportPdf() },
                     )
                     DropdownMenuItem(
                         text = { Text("コマンドパレット…") },
@@ -2047,6 +2078,7 @@ private fun CommandPalette(
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
     onExportSelection: () -> Unit = {},
+    onExportPdf: () -> Unit = {},
     onGuideCreate: () -> Unit = {},
     onParametricShape: () -> Unit = {},
     onChart: () -> Unit = {},
@@ -2055,6 +2087,8 @@ private fun CommandPalette(
     onStylePreset: () -> Unit = {},
     onBrushPreset: () -> Unit = {},
     onShortcutCustomize: () -> Unit = {},
+    onObjectSearch: () -> Unit = {},
+    onSvgAttributeEdit: () -> Unit = {},
     onPanel: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -2077,6 +2111,9 @@ private fun CommandPalette(
         onStylePreset = onStylePreset,
         onBrushPreset = onBrushPreset,
         onShortcutCustomize = onShortcutCustomize,
+        onObjectSearch = onObjectSearch,
+        onSvgAttributeEdit = onSvgAttributeEdit,
+        onExportPdf = onExportPdf,
         onPanel = onPanel,
     )
     val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
@@ -2138,6 +2175,7 @@ private fun commandList(
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
     onExportSelection: () -> Unit = {},
+    onExportPdf: () -> Unit = {},
     onGuideCreate: () -> Unit = {},
     onParametricShape: () -> Unit = {},
     onChart: () -> Unit = {},
@@ -2146,6 +2184,8 @@ private fun commandList(
     onStylePreset: () -> Unit = {},
     onBrushPreset: () -> Unit = {},
     onShortcutCustomize: () -> Unit = {},
+    onObjectSearch: () -> Unit = {},
+    onSvgAttributeEdit: () -> Unit = {},
     onPanel: (String) -> Unit,
 ): List<Triple<String, String, () -> Unit>> {
     return listOf(
@@ -2189,6 +2229,8 @@ private fun commandList(
         Triple("スタイルプリセット…", "") { onStylePreset() },
         Triple("ブラシプリセット…", "") { onBrushPreset() },
         Triple("ショートカットのカスタマイズ…", "") { onShortcutCustomize() },
+        Triple("オブジェクト検索…", "") { onObjectSearch() },
+        Triple("ピクセルプレビュー", "") { editor.showPixelGrid = !editor.showPixelGrid; editor.onChanged() },
         Triple("パネル: レイヤー / オブジェクト", "") { onPanel("layers") },
         Triple("パネル: プロパティ", "") { onPanel("props") },
         Triple("パネル: 操作履歴", "") { onPanel("history") },
@@ -2198,6 +2240,8 @@ private fun commandList(
         Triple("画像をインポート…", "") { onImageImport() },
         Triple("PNG書き出し…", "") { onExportPng() },
         Triple("選択をSVGで書き出し…", "") { onExportSelection() },
+        Triple("PDF書き出し…", "") { onExportPdf() },
+        Triple("SVG属性直接編集…", "") { onSvgAttributeEdit() },
     )
 }
 

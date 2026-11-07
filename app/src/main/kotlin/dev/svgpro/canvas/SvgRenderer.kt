@@ -17,6 +17,7 @@ import android.graphics.Shader
 import android.util.Base64
 import dev.svgpro.core.geom.Matrix
 import dev.svgpro.core.model.Paint as SvgPaint
+import dev.svgpro.core.model.MeshGradientModel
 import dev.svgpro.core.model.Shapes
 import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.ops.GeometryOps
@@ -173,6 +174,31 @@ class SvgRenderer {
             canvas.restore()
         }
 
+        // 内側シャドウ: fillをデスティネーションとし、SRC_INでシャドウを内側のみ描画
+        val innerShadow = parseInnerShadow(el)
+        val innerShadowColor = parseInnerShadowColor(el)
+        if (innerShadow != null && innerShadowColor != null && innerShadow.first != 0.0 && innerShadow.second != 0.0) {
+            val dx = innerShadow.first
+            val dy = innerShadow.second
+            val blur = innerShadow.third
+            var shadowColor = innerShadowColor
+            val layer = canvas.saveLayer(null, null, Canvas.ALL_SAVE_FLAG)
+            // fillをデスティネーションとして描画（fillPaintは既に設定済み）
+            canvas.drawPath(path, fillPaint)
+            // シャドウをSRC_INで塗りつぶし→fill領域内にのみ表示
+            val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = shadowColor
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+                if (blur > 0.0) {
+                    maskFilter = BlurMaskFilter(blur.toFloat(), BlurMaskFilter.Blur.NORMAL)
+                }
+            }
+            canvas.translate(dx.toFloat(), dy.toFloat())
+            canvas.drawPath(path, shadowPaint)
+            canvas.translate(-dx.toFloat(), -dy.toFloat())
+            canvas.restoreToCount(layer)
+        }
+
         if (fill !is SvgPaint.None && !editor.showOutlineMode) {
             configurePaint(fillPaint, fill, el, item, editor, true)
             fillPaint.alpha = (fillPaint.alpha * elementOpacity).toInt().coerceIn(0, 255)
@@ -233,6 +259,22 @@ class SvgRenderer {
         val radius = dev.svgpro.core.util.Numbers.parse(parts[0]) ?: 0.0
         val c = dev.svgpro.core.model.Color.parse(parts[1]) ?: 0xFF000000.toInt()
         return Pair(radius, c)
+    }
+
+    /** data-svgpro-effect-inner-shadow="dx dy blur color"。未設定ならnull。 */
+    private fun parseInnerShadow(el: Element): Triple<Double, Double, Double>? {
+        val s = StyleUtil.getProperty(el, "data-svgpro-effect-inner-shadow") ?: return null
+        val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+        if (parts.size < 3) return null
+        return Triple(parts[0], parts[1], parts[2])
+    }
+
+    /** 内側シャドウ色を取得。 */
+    private fun parseInnerShadowColor(el: Element): Int? {
+        val s = StyleUtil.getProperty(el, "data-svgpro-effect-inner-shadow") ?: return null
+        val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (parts.size < 4) return null
+        return dev.svgpro.core.model.Color.parse(parts.last()) ?: null
     }
 
     /** data-svgpro-effect-colormatrix="m00 m01 ... m19"（20値）。未設定ならnull。 */
@@ -327,6 +369,28 @@ class SvgRenderer {
                         maxOf(bounds.width, bounds.height)
                 }
                 RadialGradient(cxv.toFloat(), cyv.toFloat(), rv.toFloat().coerceAtLeast(0.01f), colors, positions, Shader.TileMode.CLAMP)
+            }
+            "meshGradient" -> {
+                val model = MeshGradientModel.of(def) ?: return null
+                val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+                val c = Canvas(bitmap)
+                val cellW = bounds.width / model.cols
+                val cellH = bounds.height / model.rows
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                for (cy in 0 until model.rows) {
+                    for (cx in 0 until model.cols) {
+                        val c00 = model.colorAt(cx.toDouble() / model.cols, cy.toDouble() / model.rows)
+                        paint.color = c00
+                        c.drawRect(
+                            (bounds.x + cx * cellW).toFloat(),
+                            (bounds.y + cy * cellH).toFloat(),
+                            (bounds.x + (cx + 1) * cellW).toFloat(),
+                            (bounds.y + (cy + 1) * cellH).toFloat(),
+                            paint,
+                        )
+                    }
+                }
+                BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
             }
             else -> null
         }

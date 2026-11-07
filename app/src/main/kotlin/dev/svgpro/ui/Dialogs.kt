@@ -215,6 +215,147 @@ fun NumberInputDialog(
     )
 }
 
+/** オブジェクト検索ダイアログ（名前・タグ・IDで検索）。 */
+@Composable
+fun ObjectSearchDialog(
+    editor: Editor,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val all = collectDescendants(editor.doc.root)
+    val filtered = if (query.isBlank()) all else all.filter { el ->
+        val id = el.attr("id") ?: ""
+        val tag = el.tag
+        val text = el.textContent().take(30)
+        id.contains(query, ignoreCase = true) || tag.contains(query, ignoreCase = true) || text.contains(query, ignoreCase = true)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("オブジェクト検索") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().widthIn(min = 320.dp).heightIn(max = 400.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("名前 / タグ / 内容で検索") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+                if (filtered.isEmpty()) {
+                    Text("一致するオブジェクトはありません", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(filtered, key = { it.hashCode() }) { el ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    "${el.tag} ${el.attr("id")?.let { "#$it" } ?: ""} ${el.textContent().take(20)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                                TextButton(
+                                    onClick = {
+                                        editor.selection.clear()
+                                        editor.selection.add(el)
+                                        editor.notifySelection()
+                                        onDismiss()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 4.dp),
+                                ) { Text("選択", style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("閉じる") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
+private fun collectDescendants(el: dev.svgpro.core.svg.Element): List<dev.svgpro.core.svg.Element> {
+    val out = mutableListOf<dev.svgpro.core.svg.Element>()
+    fun walk(e: dev.svgpro.core.svg.Element) {
+        out.add(e)
+        for (c in e.childElements()) walk(c)
+    }
+    walk(el)
+    return out
+}
+
+/** SVG属性直接編集ダイアログ。選択要素の全属性を表示・編集できる。 */
+@Composable
+fun SvgAttributeDialog(
+    editor: Editor,
+    onDismiss: () -> Unit,
+) {
+    val el = editor.selection.firstOrNull() ?: return
+    val attrs = el.attrs.entries.toMutableList()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("SVG属性編集：${el.tag}") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().widthIn(min = 340.dp).heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    "属性を直接編集します。不正な値は保存されません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(attrs, key = { it.key }) { (key, value) ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 1.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                key,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(100.dp),
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                            OutlinedTextField(
+                                value = value,
+                                onValueChange = { newValue ->
+                                    val idx = attrs.indexOfFirst { it.key == key }
+                                    if (idx >= 0) attrs[idx] = java.util.AbstractMap.SimpleEntry(key, newValue)
+                                },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                editor.commit("svg attribute edit") { batch ->
+                    batch.touch(el)
+                    for (entry in attrs) {
+                        el.setAttr(entry.key, entry.value)
+                    }
+                }
+                onDismiss()
+            }) { Text("適用") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
 /**
  * カラーピッカー（HSV+α、HEX入力つき）
  */

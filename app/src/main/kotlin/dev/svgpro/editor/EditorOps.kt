@@ -595,15 +595,16 @@ fun Editor.snapSelectionToGrid() {
 // ―――――――――――――――――――――――――――――――――――――――――――
 
 /**
- * 移動中の選択bboxを他オブジェクトの辺/中心に整列させる。
+ * 移動中の選択bboxを他オブジェクトの辺/中心/中点に整列させる。
  * @return 補正後のdeltaと、表示する補助線（縦線x / 横線y）
  */
 fun Editor.computeSmartGuides(b: Bounds, delta: Vec, toleranceUser: Double): Triple<Vec, List<Double>, List<Double>> {
     val vLines = ArrayList<Double>()
     val hLines = ArrayList<Double>()
     if (!smartGuides) return Triple(delta, vLines, hLines)
-    val candX = listOf(b.x, b.centerX, b.right)
-    val candY = listOf(b.y, b.centerY, b.bottom)
+    // 候補点: 左端/中心/右端 + 辺の中点
+    val candX = listOf(b.x, b.centerX, b.right, b.centerX - b.width/4, b.centerX + b.width/4)
+    val candY = listOf(b.y, b.centerY, b.bottom, b.centerY - b.height/4, b.centerY + b.height/4)
     var bestX: Pair<Double, Double>? = null // (targetX, matchedLine)
     var bestY: Pair<Double, Double>? = null
     var bestDx = toleranceUser
@@ -612,7 +613,10 @@ fun Editor.computeSmartGuides(b: Bounds, delta: Vec, toleranceUser: Double): Tri
     for (item in trace.items) {
         if (item.locked || !item.visible || item.el in ignore) continue
         val ob = trace.boundsOf(item.el) ?: continue
-        for (line in listOf(ob.x, ob.centerX, ob.right)) {
+        // 他オブジェクトの候補線（辺・中心・中点）
+        val oxLines = listOf(ob.x, ob.centerX, ob.right, ob.centerX - ob.width/4, ob.centerX + ob.width/4)
+        val oyLines = listOf(ob.y, ob.centerY, ob.bottom, ob.centerY - ob.height/4, ob.centerY + ob.height/4)
+        for (line in oxLines) {
             for (c in candX) {
                 val d = abs((c + delta.x) - line)
                 if (d < bestDx) {
@@ -621,7 +625,7 @@ fun Editor.computeSmartGuides(b: Bounds, delta: Vec, toleranceUser: Double): Tri
                 }
             }
         }
-        for (line in listOf(ob.y, ob.centerY, ob.bottom)) {
+        for (line in oyLines) {
             for (c in candY) {
                 val d = abs((c + delta.y) - line)
                 if (d < bestDy) {
@@ -1451,6 +1455,38 @@ fun Editor.renderToBitmap(
     val renderer = dev.svgpro.canvas.SvgRenderer()
     renderer.draw(canvas, this, vm)
     return bmp
+}
+
+/** ドキュメントをPDFとして保存（Android PdfDocument API 使用）。 */
+fun Editor.exportPdfToUri(uri: android.net.Uri, pageW: Int, pageH: Int): Boolean {
+    return try {
+        val doc = android.graphics.pdf.PdfDocument()
+        val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(pageW, pageH, 1).create()
+        val page = doc.startPage(pageInfo)
+        val canvas = page.canvas
+
+        val target = dev.svgpro.core.geom.Bounds(
+            this.doc.viewBox.minX, this.doc.viewBox.minY,
+            this.doc.viewBox.width, this.doc.viewBox.height
+        )
+        val scale = minOf(pageW.toDouble() / target.width.coerceAtLeast(1e-6), pageH.toDouble() / target.height.coerceAtLeast(1e-6))
+        val offsetX = (pageW - target.width * scale) / 2.0
+        val offsetY = (pageH - target.height * scale) / 2.0
+        val vm = dev.svgpro.core.geom.Matrix(a = scale, d = scale, e = offsetX - target.x * scale, f = offsetY - target.y * scale)
+
+        val renderer = dev.svgpro.canvas.SvgRenderer()
+        renderer.draw(canvas, this, vm)
+
+        doc.finishPage(page)
+        val out = dev.svgpro.AppContextHolder.get()?.contentResolver?.openOutputStream(uri, "wt") ?: return false
+        doc.writeTo(out)
+        doc.close()
+        out.close()
+        true
+    } catch (e: Exception) {
+        e.printStackTrace()
+        false
+    }
 }
 
 /** 色の一括置換（undo統合）。@return 置換された要素数 */

@@ -2602,6 +2602,42 @@ class Editor {
         }
     }
 
+    /** 内側シャドウを選択要素に適用。data-svgpro-effect-inner-shadow="dx dy blur color"。 */
+    fun applyEffectInnerShadowToSelection(dx: Double, dy: Double, blur: Double, color: Int) {
+        if (selection.isEmpty()) return
+        commit("effect-inner-shadow") { batch ->
+            for (el in selection) {
+                batch.touch(el)
+                if (blur <= 0.0) {
+                    StyleUtil.removeProperty(el, "data-svgpro-effect-inner-shadow")
+                    el.setAttr("data-svgpro-effect-inner-shadow", null)
+                } else {
+                    StyleUtil.setProperty(el, "data-svgpro-effect-inner-shadow",
+                        "${dev.svgpro.core.util.Numbers.format(dx)} ${dev.svgpro.core.util.Numbers.format(dy)} " +
+                        "${dev.svgpro.core.util.Numbers.format(blur.coerceIn(0.0, 256.0))} ${dev.svgpro.core.model.Color.css(color)}")
+                }
+            }
+        }
+    }
+
+    /** 選択要素の内側シャドウ設定を取得（未設定なら null）。dx, dy, blur のTriple。 */
+    fun selectionEffectInnerShadow(): Triple<Double, Double, Double>? {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(v, "data-svgpro-effect-inner-shadow") ?: return null
+            val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.mapNotNull { dev.svgpro.core.util.Numbers.parse(it) }
+            if (parts.size < 3) null else Triple(parts[0], parts[1], parts[2])
+        }
+    }
+
+    /** 選択要素の内側シャドウ色を取得（未設定なら null）。 */
+    fun selectionEffectInnerShadowColor(): Int? {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(v, "data-svgpro-effect-inner-shadow") ?: return null
+            val parts = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            if (parts.size < 4) null else dev.svgpro.core.model.Color.parse(parts.last()) ?: null
+        }
+    }
+
     /** 色調変更（ColorMatrix）を選択要素に適用。data-svgpro-effect-colormatrix="a b c d e f g h i j"。 */
     fun applyEffectColorMatrixToSelection(matrix: String) {
         if (selection.isEmpty()) return
