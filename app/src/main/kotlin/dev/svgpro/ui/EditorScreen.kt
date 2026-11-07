@@ -1152,6 +1152,11 @@ private fun TopBar(
                         leadingIcon = { Icon(AppIcons.Font, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onFontManager() },
                     )
+                    DropdownMenuItem(
+                        text = { Text("オブジェクト検索…") },
+                        leadingIcon = { Icon(AppIcons.Search, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onObjectSearch() },
+                    )
                     HorizontalDivider()
                     // ドキュメント
                     SectionTitle("ドキュメント")

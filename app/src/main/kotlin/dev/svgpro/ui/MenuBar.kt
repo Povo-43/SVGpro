@@ -137,6 +137,7 @@ fun MenuBar(
                     MenuDropdownItem("グループ化", { onGroup() }, enabled = editor.selection.size >= 2)
                     MenuDropdownItem("グループ解除", { onUngroup() }, enabled = editor.selection.any { it.tag == "g" })
                     HorizontalDivider()
+                    MenuDropdownItem("オブジェクト検索…", { onObjectSearch() })
                     MenuDropdownItem("選択テキストをパス化", { onFontToPath() },
                         enabled = editor.selection.any { it.tag == "text" })
                 }
