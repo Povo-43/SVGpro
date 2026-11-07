@@ -9,9 +9,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.selectSameFill
+import dev.svgpro.editor.selectSameFont
 import dev.svgpro.editor.selectSameKind
 import dev.svgpro.editor.selectSameStroke
 import dev.svgpro.editor.swapFillStrokeSelection
+import dev.svgpro.editor.makeTextPath
 
 /**
  * デスクトップ／タブレット向けPCライクメニューバー。
@@ -143,9 +145,15 @@ fun MenuBar(
                 DropdownMenu(
                     expanded = true,
                     onDismissRequest = {},
-                    modifier = Modifier.width(160.dp),
+                    modifier = Modifier.width(180.dp),
                 ) {
                     MenuDropdownItem("テキストを追加", { onText() })
+                    MenuDropdownItem("同じフォントを選択", { editor.selectSameFont() },
+                        enabled = editor.selection.any { it.tag == "text" })
+                    MenuDropdownItem("テキストを円周に沿わせる", { editor.makeTextPath() },
+                        enabled = editor.selection.size == 2 &&
+                            editor.selection.any { it.tag == "text" } &&
+                            editor.selection.any { it.tag == "path" })
                 }
             }
             MenuItem("ツール") {

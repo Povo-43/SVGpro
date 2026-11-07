@@ -62,8 +62,9 @@ import dev.svgpro.editor.swapFillStrokeSelection
 import dev.svgpro.editor.renderToBitmap
 import dev.svgpro.editor.exportPdfToUri
 import dev.svgpro.editor.selectSameFill
-import dev.svgpro.editor.selectSameStroke
+import dev.svgpro.editor.selectSameFont
 import dev.svgpro.editor.selectSameKind
+import dev.svgpro.editor.selectSameStroke
 import dev.svgpro.editor.selectionGaps
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.ToolType
@@ -110,6 +111,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showFontManager by remember { mutableStateOf(false) }
     var showFontToPath by remember { mutableStateOf(false) }
     var showTextOnCircle by remember { mutableStateOf(false) }
+    var showObjectSearch by remember { mutableStateOf(false) }
     var animationMode by remember { mutableStateOf(false) }
     var selectedFontFamily by remember { mutableStateOf<String?>(null) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -117,7 +119,6 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showRestoreConfirm by remember { mutableStateOf(false) }
     var showDocSettings by remember { mutableStateOf(false) }
     var showGuideCreate by remember { mutableStateOf(false) }
-    var showObjectSearch by remember { mutableStateOf(false) }
     var showSvgAttributeEdit by remember { mutableStateOf(false) }
 
     /** キャンバスビューの画面内位置（インラインテキスト入力の配置に使用） */
@@ -2221,6 +2222,7 @@ private fun commandList(
         Triple("同じ塗りを選択", "") { editor.selectSameFill() },
         Triple("同じ線を選択", "") { editor.selectSameStroke() },
         Triple("同じ種類を選択", "") { editor.selectSameKind() },
+        Triple("同じフォントを選択", "") { editor.selectSameFont() },
         Triple("塗りと線を入れ替え", "X") { editor.swapFillStrokeSelection() },
         Triple("グループ化", "Ctrl+G") { editor.groupSelection() },
         Triple("グループ解除", "Ctrl+Shift+G") { editor.ungroupSelection() },

@@ -278,6 +278,15 @@ fun Editor.selectSameKind() {
     selectSameBy { it.tag == ref.tag }
 }
 
+/** 同じフォント（font-family）のテキストオブジェクトを選択に追加 */
+fun Editor.selectSameFont() {
+    val ref = selection.firstOrNull { it.tag == "text" } ?: return
+    val family = StyleUtil.getProperty(ref, "font-family") ?: ""
+    selectSameBy {
+        it.tag == "text" && StyleUtil.getProperty(it, "font-family") == family
+    }
+}
+
 private fun Paint.matchesForSame(other: Paint): Boolean = when {
     this is Paint.Solid && other is Paint.Solid -> (argb and 0x00FFFFFF) == (other.argb and 0x00FFFFFF)
     this is Paint.None && other is Paint.None -> true
