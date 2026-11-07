@@ -10,11 +10,8 @@ import dev.svgpro.editor.Editor
 import dev.svgpro.editor.NodeRef
 import dev.svgpro.editor.ToolType
 import dev.svgpro.editor.computeSmartGuides
+import dev.svgpro.editor.createGradientForSelection
 import dev.svgpro.editor.selectInLasso
-import dev.svgpro.editor.selectParent
-import dev.svgpro.editor.gradientHandlePoints
-import dev.svgpro.editor.setupGradientEdit
-import dev.svgpro.editor.computeSmartGuides
 import dev.svgpro.editor.selectParent
 import dev.svgpro.editor.gradientHandlePoints
 import dev.svgpro.editor.setupGradientEdit
@@ -173,6 +170,16 @@ class ToolController(val editor: Editor) {
     /** グラデーションツール: ハンドル（始点/終点）をつかんでドラッグ */
     private fun onGradientDown(user: Vec, screen: Vec) {
         editor.setupGradientEdit()
+        if (editor.gradientHandlePoints() == null) {
+            // 選択にグラデーションが無い場合は新規作成してから編集を開始する
+            //（以前は無条件に return していて、ツールが何も反応しなかった）
+            if (editor.selection.isNotEmpty() && editor.isEditable()) {
+                editor.createGradientForSelection(radial = false) ?: return
+                editor.setupGradientEdit()
+            } else {
+                return
+            }
+        }
         val handles = editor.gradientHandlePoints() ?: return
         val s = handles.second
         val e = handles.third

@@ -51,6 +51,13 @@ fun MenuBar(
     onPanel: (String) -> Unit = {},
     isPanelOpen: (String) -> Boolean = { false },
     onExportSelection: () -> Unit = {},
+    onParametricShape: () -> Unit = {},
+    onChart: () -> Unit = {},
+    onMacroRecorder: () -> Unit = {},
+    onComments: () -> Unit = {},
+    onStylePreset: () -> Unit = {},
+    onBrushPreset: () -> Unit = {},
+    onShortcutCustomize: () -> Unit = {},
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -138,6 +145,24 @@ fun MenuBar(
                     modifier = Modifier.width(160.dp),
                 ) {
                     MenuDropdownItem("テキストを追加", { onText() })
+                }
+            }
+            MenuItem("ツール") {
+                DropdownMenu(
+                    expanded = true,
+                    onDismissRequest = {},
+                    modifier = Modifier.width(210.dp),
+                ) {
+                    MenuDropdownItem("パラメトリック図形生成…", { onParametricShape() })
+                    MenuDropdownItem("チャート/グラフ生成…", { onChart() })
+                    MenuDropdownItem("マクロ記録・再生…", { onMacroRecorder() })
+                    MenuDropdownItem("コメント/注釈…", { onComments() })
+                    HorizontalDivider()
+                    MenuDropdownItem("スタイルプリセット…", { onStylePreset() })
+                    MenuDropdownItem("ブラシプリセット…", { onBrushPreset() })
+                    HorizontalDivider()
+                    MenuDropdownItem("ショートカット一覧", { onShortcuts() })
+                    MenuDropdownItem("ショートカットのカスタマイズ…", { onShortcutCustomize() })
                 }
             }
             MenuItem("ヘルプ") {

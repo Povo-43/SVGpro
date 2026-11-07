@@ -1,14 +1,21 @@
 package dev.svgpro.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.svgpro.core.animation.AnimationTrack
@@ -45,6 +52,8 @@ fun AnimationPanel(
     var selectedTrackId by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var showMotionPathDialog by remember { mutableStateOf(false) }
+    /** イージング編集中のキーフレーム（trackId to timeMs） */
+    var easingTarget by remember { mutableStateOf<Pair<String, Long>?>(null) }
 
     // 再生ループ（30fps）
     val scope = rememberCoroutineScope()
@@ -121,7 +130,15 @@ fun AnimationPanel(
             )
             Spacer(Modifier.weight(1f))
             IconButton(
-                onClick = { showAddDialog = true },
+                onClick = {
+                    if (tracks.isEmpty()) {
+                        // トラックが無い場合は選択中オブジェクトから直接作る
+                        //（ダイアログは既存トラック選択用のため、この場合は無反応になる）
+                        editor.addKeyframeForSelection(editor.keyframeTimeMs)
+                    } else {
+                        showAddDialog = true
+                    }
+                },
                 modifier = Modifier.size(UiMetrics.MiniButton),
                 enabled = editor.selection.isNotEmpty(),
             ) {
@@ -140,7 +157,8 @@ fun AnimationPanel(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-        // タイムライン本体
+        // タイムライン本体（内容は最小600dp。パネル幅を超える分は横スクロールで見る）
+        Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
         TimelineCanvas(
             editor = editor,
             tracks = tracks,
@@ -181,8 +199,22 @@ fun AnimationPanel(
             onRemoveKeyframe = { trackId, timeMs ->
                 editor.removeKeyframe(trackId, timeMs)
             },
-            onEditEasing = { trackId, timeMs -> },
+            onEditEasing = { trackId, timeMs ->
+                // 以前は空ラムダで、キーフレーム長押しのイージング編集が機能していなかった
+                easingTarget = trackId to timeMs
+            },
         )
+        }
+
+        // イージング編集ダイアログ
+        easingTarget?.let { (trackId, timeMs) ->
+            EasingDialog(
+                editor = editor,
+                trackId = trackId,
+                timeMs = timeMs,
+                onDismiss = { easingTarget = null },
+            )
+        }
 
         // 選択トラック詳細
         val selectedTrack = tracks.firstOrNull { it.id == selectedTrackId }
@@ -416,11 +448,24 @@ private fun TimelineCanvas(
     val contentWidth = (durationMs.coerceAtLeast(1).toFloat() * pxPerMs).coerceAtLeast(minTimelineWidth)
 
     Column(Modifier.fillMaxWidth()) {
-        // 時間ルーラー（ヘッダー）
+        // 時間ルーラー（ヘッダー）。タップ/ドラッグで再生位置をスクラブできる
         Box(
             Modifier
                 .fillMaxWidth()
-                .heightIn(headerHeight.dp),
+                .heightIn(headerHeight.dp)
+                .pointerInput(pxPerMs, durationMs) {
+                    detectTapGestures { off ->
+                        val t = (off.x / pxPerMs).toLong().coerceIn(0, durationMs)
+                        editor.seekKeyframeAnimation(t)
+                    }
+                }
+                .pointerInput(pxPerMs, durationMs) {
+                    detectHorizontalDragGestures { change, _ ->
+                        change.consume()
+                        val t = (change.position.x / pxPerMs).toLong().coerceIn(0, durationMs)
+                        editor.seekKeyframeAnimation(t)
+                    }
+                },
         ) {
             var t = 0L
             val stepMs = deriveStepMs(durationMs)
@@ -471,6 +516,7 @@ private fun TimelineCanvas(
 }
 
 /** 1トラックの描画行 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackRow(
     editor: Editor,
@@ -545,26 +591,67 @@ private fun TrackRow(
             Box(Modifier.fillMaxSize())
         }
 
-        // キーフレームマーカー
+        // キーフレームマーカー（クリック=その時刻へシーク / 長押し=イージング編集）
         for (kf in track.keyframes) {
             val x = kf.timeMs.toFloat() * pxPerMs
             val isCurrent = kf.timeMs == currentTimeMs
             val markerColor = if (isCurrent) MaterialTheme.colorScheme.primary
             else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             val markerSize = if (isCurrent) 10f else 7f
-            Surface(
-                color = markerColor,
-                modifier = Modifier
-                    .size(markerSize.dp)
+            Box(
+                Modifier
+                    .size(18.dp)
                     .offset(
-                        x = (x - markerSize / 2).dp,
-                        y = (trackHeight / 2 - markerSize / 2).dp,
+                        x = (x - 9).dp,
+                        y = (trackHeight / 2 - 9).dp,
                     ),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(Modifier.fillMaxSize())
+                Surface(
+                    color = markerColor,
+                    modifier = Modifier
+                        .size(markerSize.dp)
+                        .combinedClickable(
+                            onClick = { onKeyframeClick(kf.timeMs) },
+                            onLongClick = { onEditEasing(kf.timeMs) },
+                        ),
+                ) {
+                    Box(Modifier.fillMaxSize())
+                }
             }
         }
     }
+}
+
+/** キーフレームのイージングを選択するダイアログ（長押しで開く） */
+@Composable
+private fun EasingDialog(
+    editor: Editor,
+    trackId: String,
+    timeMs: Long,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("イージング") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    "linear" to "リニア（一定速度）",
+                    "easeIn" to "緩やかに加速",
+                    "easeOut" to "緩やかに減速",
+                    "easeInOut" to "両端が緩やか",
+                ).forEach { (value, label) ->
+                    TextButton(onClick = {
+                        editor.setKeyframeEasing(trackId, timeMs, value)
+                        onDismiss()
+                    }) { Text(label, style = MaterialTheme.typography.bodyMedium) }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
 }
 
 /** 時間ステップ（ルーラー目盛間隔）を導出 */
@@ -608,15 +695,21 @@ private fun AddKeyframeDialog(
             Column(Modifier.width(280.dp)) {
                 Text("トラック", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                DropdownMenu(
-                    expanded = true,
-                    onDismissRequest = {},
-                    modifier = Modifier.fillMaxWidth(),
+                // 以前は expanded=true 固定の DropdownMenu で、開きっぱなしで閉じられなかった
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     tracks.forEach { track ->
-                        DropdownMenuItem(
-                            text = { Text(track.targetName.ifEmpty { "トラック${tracks.indexOf(track) + 1}" }) },
+                        FilterChip(
+                            selected = trackId == track.id,
                             onClick = { trackId = track.id },
+                            label = {
+                                Text(
+                                    track.targetName.ifEmpty { "トラック${tracks.indexOf(track) + 1}" },
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            },
                         )
                     }
                 }
@@ -634,10 +727,16 @@ private fun AddKeyframeDialog(
         confirmButton = {
             TextButton(onClick = {
                 val track = tracks.firstOrNull { it.id == trackId }
-                val target = track?.let { editor.doc.root.findById(it.targetId) }
-                if (track != null && target != null) {
-                    val t = (timeSec.toDoubleOrNull() ?: 1.0) * 1000L
-                    val tLong = t.toLong()
+                if (track == null) {
+                    // トラック未選択（存在しない）場合は選択中オブジェクトへフォールバック
+                    val t = ((timeSec.toDoubleOrNull() ?: 1.0) * 1000L).toLong()
+                    editor.addKeyframeForSelection(t)
+                    onDismiss()
+                    return@TextButton
+                }
+                val target = track.let { editor.doc.root.findById(it.targetId) }
+                if (target != null) {
+                    val tLong = ((timeSec.toDoubleOrNull() ?: 1.0) * 1000L).toLong()
                     val props = LinkedHashMap<String, String>()
                     props["x"] = target.attr("x") ?: "0"
                     props["y"] = target.attr("y") ?: "0"

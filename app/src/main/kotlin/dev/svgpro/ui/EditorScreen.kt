@@ -171,10 +171,9 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
     // アニメーション再生中は keyframeTimeMs が毎フレーム変化するため、
     // CanvasView を invalidate して onDraw 内の applyAnimationAt を走らせる。
+    // （以前は再生中のみ無効化しており、停止中のスクラブがキャンバスに反映されなかった）
     LaunchedEffect(editor.keyframeTimeMs) {
-        if (editor.isKeyframePlaying) {
-            canvasView.invalidate()
-        }
+        canvasView.invalidate()
     }
     LaunchedEffect(dark) { canvasView.setDarkTheme(dark) }
 
@@ -214,6 +213,24 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
     val fontImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
+            // 選択されたフォントをキャッシュへコピーして登録してからマネージャーを開く
+            //（以前はURIを無視してマネージャーを開くだけの無反応ボタンだった）
+            try {
+                val resolver = dev.svgpro.AppContextHolder.get()?.contentResolver
+                if (resolver != null) {
+                    resolver.openInputStream(uri)?.use { input ->
+                        val dir = java.io.File(context.cacheDir, "fonts")
+                        dir.mkdirs()
+                        val base = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+                            ?: "font-${System.currentTimeMillis()}"
+                        val outFile = java.io.File(dir, base)
+                        java.io.FileOutputStream(outFile).use { input.copyTo(it) }
+                        vm.loadFontFromFile(outFile.absolutePath)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             showFontManager = true
         }
     }
@@ -299,6 +316,13 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgOptimize = { showSvgOptimize = true },
                 onCommandPalette = { showCommandPalette = true },
                 onGuideCreate = { showGuideCreate = true },
+                onParametricShape = { showParametricShape = true },
+                onChart = { showChart = true },
+                onMacroRecorder = { showMacroRecorder = true },
+                onComments = { showComments = true },
+                onStylePreset = { showStylePreset = true },
+                onBrushPreset = { showBrushPreset = true },
+                onShortcutCustomize = { showShortcutCustomize = true },
                 recentFiles = vm.recentFiles,
                 onOpenRecent = { uriStr -> openDocument(vm, android.net.Uri.parse(uriStr)) },
                 onExportSelection = { exportSvgLauncher.launch("selection.svg") },
@@ -358,6 +382,13 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                     onPanel = { name -> dock.toggle(name) },
                     isPanelOpen = { id -> dock.isOpen(id) },
                     onExportSelection = { exportSvgLauncher.launch("selection.svg") },
+                    onParametricShape = { showParametricShape = true },
+                    onChart = { showChart = true },
+                    onMacroRecorder = { showMacroRecorder = true },
+                    onComments = { showComments = true },
+                    onStylePreset = { showStylePreset = true },
+                    onBrushPreset = { showBrushPreset = true },
+                    onShortcutCustomize = { showShortcutCustomize = true },
                 )            }
 
             // ペン作成中は確定バーを出す（Columnスコープで評価し、Rowラムダへは値を渡す。
@@ -633,6 +664,13 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onExportPng = { pngLauncher.launch("export.png") },
                 onExportSelection = { exportSvgLauncher.launch("selection.svg") },
                 onGuideCreate = { showGuideCreate = true },
+                onParametricShape = { showParametricShape = true },
+                onChart = { showChart = true },
+                onMacroRecorder = { showMacroRecorder = true },
+                onComments = { showComments = true },
+                onStylePreset = { showStylePreset = true },
+                onBrushPreset = { showBrushPreset = true },
+                onShortcutCustomize = { showShortcutCustomize = true },
                 onPanel = { name -> dock.toggle(name) },
             )
         }
@@ -879,6 +917,13 @@ private fun TopBar(
     onExportSelection: () -> Unit = {},
     onDuplicateDoc: () -> Unit = {},
     onGuideCreate: () -> Unit = {},
+    onParametricShape: () -> Unit = {},
+    onChart: () -> Unit = {},
+    onMacroRecorder: () -> Unit = {},
+    onComments: () -> Unit = {},
+    onStylePreset: () -> Unit = {},
+    onBrushPreset: () -> Unit = {},
+    onShortcutCustomize: () -> Unit = {},
 ) {
     // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
     // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
@@ -1104,6 +1149,34 @@ private fun TopBar(
                         text = { Text("コマンドパレット…") },
                         leadingIcon = { Icon(AppIcons.Search, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); onCommandPalette() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("パラメトリック図形生成…") },
+                        onClick = { onMenuDismiss(); onParametricShape() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("チャート/グラフ生成…") },
+                        onClick = { onMenuDismiss(); onChart() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("マクロ記録・再生…") },
+                        onClick = { onMenuDismiss(); onMacroRecorder() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("コメント/注釈…") },
+                        onClick = { onMenuDismiss(); onComments() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("スタイルプリセット…") },
+                        onClick = { onMenuDismiss(); onStylePreset() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ブラシプリセット…") },
+                        onClick = { onMenuDismiss(); onBrushPreset() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ショートカットのカスタマイズ…") },
+                        onClick = { onMenuDismiss(); onShortcutCustomize() },
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
@@ -1343,6 +1416,12 @@ fun ToolRail(editor: Editor, refresh: Int, vertical: Boolean) {
                 }
                 RailToggle(AppIcons.Magnet, "距離スナップ", description = "オブジェクト同士の距離にスナップ", editor.snapToDistance, refresh) {
                     editor.snapToDistance = !editor.snapToDistance; editor.onChanged()
+                }
+                RailToggle(AppIcons.Grid, "ピクセルグリッド", description = "ピクセルグリッドの表示・非表示を切り替え", editor.showPixelGrid, refresh) {
+                    editor.showPixelGrid = !editor.showPixelGrid; editor.onChanged()
+                }
+                RailToggle(AppIcons.Outline, "アウトライン表示", description = "オブジェクトをアウトライン（輪郭のみ）表示", editor.showOutlineMode, refresh) {
+                    editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged()
                 }
             }
         } else {
@@ -1969,6 +2048,13 @@ private fun CommandPalette(
     onExportPng: () -> Unit,
     onExportSelection: () -> Unit = {},
     onGuideCreate: () -> Unit = {},
+    onParametricShape: () -> Unit = {},
+    onChart: () -> Unit = {},
+    onMacroRecorder: () -> Unit = {},
+    onComments: () -> Unit = {},
+    onStylePreset: () -> Unit = {},
+    onBrushPreset: () -> Unit = {},
+    onShortcutCustomize: () -> Unit = {},
     onPanel: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -1984,6 +2070,13 @@ private fun CommandPalette(
         onExportPng = onExportPng,
         onExportSelection = onExportSelection,
         onGuideCreate = onGuideCreate,
+        onParametricShape = onParametricShape,
+        onChart = onChart,
+        onMacroRecorder = onMacroRecorder,
+        onComments = onComments,
+        onStylePreset = onStylePreset,
+        onBrushPreset = onBrushPreset,
+        onShortcutCustomize = onShortcutCustomize,
         onPanel = onPanel,
     )
     val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
@@ -2046,6 +2139,13 @@ private fun commandList(
     onExportPng: () -> Unit,
     onExportSelection: () -> Unit = {},
     onGuideCreate: () -> Unit = {},
+    onParametricShape: () -> Unit = {},
+    onChart: () -> Unit = {},
+    onMacroRecorder: () -> Unit = {},
+    onComments: () -> Unit = {},
+    onStylePreset: () -> Unit = {},
+    onBrushPreset: () -> Unit = {},
+    onShortcutCustomize: () -> Unit = {},
     onPanel: (String) -> Unit,
 ): List<Triple<String, String, () -> Unit>> {
     return listOf(
@@ -2082,6 +2182,13 @@ private fun commandList(
         Triple("計測ツール", "M") { editor.tool = ToolType.MEASURE },
         Triple("アートボード中心にガイド", "") { editor.addCenterGuides() },
         Triple("ガイドを作成…", "") { onGuideCreate() },
+        Triple("パラメトリック図形生成…", "") { onParametricShape() },
+        Triple("チャート/グラフ生成…", "") { onChart() },
+        Triple("マクロ記録・再生…", "") { onMacroRecorder() },
+        Triple("コメント/注釈…", "") { onComments() },
+        Triple("スタイルプリセット…", "") { onStylePreset() },
+        Triple("ブラシプリセット…", "") { onBrushPreset() },
+        Triple("ショートカットのカスタマイズ…", "") { onShortcutCustomize() },
         Triple("パネル: レイヤー / オブジェクト", "") { onPanel("layers") },
         Triple("パネル: プロパティ", "") { onPanel("props") },
         Triple("パネル: 操作履歴", "") { onPanel("history") },

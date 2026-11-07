@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -17,6 +19,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -234,7 +243,7 @@ fun ColorPickerDialog(
         val c = android.graphics.Color.HSVToColor(floatArrayOf(hue, satVal.x.coerceIn(0f, 1f), satVal.y.coerceIn(0f, 1f)))
         color = ((alpha * 255).toInt() shl 24) or (c and 0x00FFFFFF)
         hex = dev.svgpro.core.model.Color.toHex(color)
-        syncCmyk(color)
+        // CMYK欄は LaunchedEffect(color) が同期する（以前はここからno-opスタブを呼んでいた）
     }
 
     AlertDialog(
@@ -338,7 +347,7 @@ fun ColorPickerDialog(
                                 android.graphics.Color.RGBToHSV((r * 255).toInt(), (g * 255).toInt(), (b * 255).toInt(), out)
                                 hue = out[0]
                                 satVal = Offset(out[1], out[2])
-                                syncCmyk(c)
+                                // CMYK欄は LaunchedEffect(color) が同期する
                             }
                         },
                         modifier = Modifier.width(130.dp),
@@ -346,20 +355,13 @@ fun ColorPickerDialog(
                         textStyle = MaterialTheme.typography.bodySmall,
                     )
                 }
-                // CMYK入力
+                // CMYK入力（color変更時に LaunchedEffect が同期する）
                 var cmykC by remember { mutableStateOf("0") }
                 var cmykM by remember { mutableStateOf("0") }
                 var cmykY by remember { mutableStateOf("0") }
                 var cmykK by remember { mutableStateOf("0") }
                 LaunchedEffect(color) {
                     val cmyk = rgbToCmyk(color)
-                    cmykC = dev.svgpro.core.util.Numbers.format(cmyk.first * 100)
-                    cmykM = dev.svgpro.core.util.Numbers.format(cmyk.second * 100)
-                    cmykY = dev.svgpro.core.util.Numbers.format(cmyk.third * 100)
-                    cmykK = dev.svgpro.core.util.Numbers.format(cmyk.fourth * 100)
-                }
-                fun syncCmyk(argb: Int) {
-                    val cmyk = rgbToCmyk(argb)
                     cmykC = dev.svgpro.core.util.Numbers.format(cmyk.first * 100)
                     cmykM = dev.svgpro.core.util.Numbers.format(cmyk.second * 100)
                     cmykY = dev.svgpro.core.util.Numbers.format(cmyk.third * 100)
@@ -416,7 +418,20 @@ fun ColorPickerDialog(
                                 .size(24.dp)
                                 .clip(CircleShape2)
                                 .background(Color(c.toInt()))
-                                .clickable { color = c.toInt(); hex = dev.svgpro.core.model.Color.toHex(c.toInt()) }
+                                .clickable {
+                                    // スウォッチ選択でHSVにも反映しないと、次にSVパッドを
+                                    // 触ったとき古いhue/satに戻ってしまう
+                                    val col = c.toInt()
+                                    color = col
+                                    hex = dev.svgpro.core.model.Color.toHex(col)
+                                    val rr = (col shr 16 and 0xFF) / 255f
+                                    val gg = (col shr 8 and 0xFF) / 255f
+                                    val bb = (col and 0xFF) / 255f
+                                    val out = FloatArray(3)
+                                    android.graphics.Color.RGBToHSV((rr * 255).toInt(), (gg * 255).toInt(), (bb * 255).toInt(), out)
+                                    hue = out[0]
+                                    satVal = Offset(out[1], out[2])
+                                }
                                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape2),
                         )
                     }
@@ -429,7 +444,20 @@ fun ColorPickerDialog(
                                 .size(24.dp)
                                 .clip(CircleShape2)
                                 .background(Color(c.toInt()))
-                                .clickable { color = c.toInt(); hex = dev.svgpro.core.model.Color.toHex(c.toInt()) }
+                                .clickable {
+                                    // スウォッチ選択でHSVにも反映しないと、次にSVパッドを
+                                    // 触ったとき古いhue/satに戻ってしまう
+                                    val col = c.toInt()
+                                    color = col
+                                    hex = dev.svgpro.core.model.Color.toHex(col)
+                                    val rr = (col shr 16 and 0xFF) / 255f
+                                    val gg = (col shr 8 and 0xFF) / 255f
+                                    val bb = (col and 0xFF) / 255f
+                                    val out = FloatArray(3)
+                                    android.graphics.Color.RGBToHSV((rr * 255).toInt(), (gg * 255).toInt(), (bb * 255).toInt(), out)
+                                    hue = out[0]
+                                    satVal = Offset(out[1], out[2])
+                                }
                                 .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape2),
                         )
                     }
@@ -527,7 +555,10 @@ fun ExportPngDialog(
                     OutlinedTextField(value = wText, onValueChange = { wText = it }, label = { Text("幅px") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(value = hText, onValueChange = { hText = it }, label = { Text("高さpx") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.svgHorizontalScroll(svgRememberScrollState())) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                ) {
                     listOf(
                         ExportFormat.PNG to "PNG",
                         ExportFormat.JPEG to "JPEG",
@@ -1016,27 +1047,28 @@ fun SvgSourceDialog(
 /**
  * SVG最適化ダイアログ。
  * 検証結果（ID重複・ダングリング参照・未使用def）を表示し、最適化を実行する。
+ * （以前はスタブ実装で常に「正常」と表示され、最適化ボタンが押せない状態だった。
+ *  core の SvgOptimizer と Editor.optimizeSvgDocument() に接続して実機能化）
  */
 @Composable
 fun SvgOptimizeDialog(
     editor: Editor,
     onDismiss: () -> Unit,
 ) {
-    var result by remember { mutableStateOf<SvgValidationResult?>(null) }
-    val validation by remember(result) { mutableStateOf(result) }
+    var result by remember { mutableStateOf<dev.svgpro.core.svg.SvgOptimizer.ValidateResult?>(null) }
 
-    fun runOptimize() {
-        result = SvgOptimizer.validate(null)
+    fun runValidate() {
+        result = dev.svgpro.core.svg.SvgOptimizer.validate(editor.doc.root)
     }
 
-    LaunchedEffect(Unit) { runOptimize() }
+    LaunchedEffect(Unit) { runValidate() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("SVG最適化・検証") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val v = validation
+                val v = result
                 if (v == null) {
                     CircularProgressIndicator(modifier = Modifier.height(16.dp))
                 } else {
@@ -1056,16 +1088,27 @@ fun SvgOptimizeDialog(
                     }
                     if (v.isValid && v.duplicateIds.isEmpty() && v.danglingRefs.isEmpty() && v.unusedDefIds.isEmpty()) {
                         Text("最適化対象はありません。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text(
+                            "最適化はID重複の付け直しと未使用定義の削除を行います（Undoできません）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
         },
         confirmButton = {
-            val v = validation
-            if (v == null || v.isValid) {
+            val v = result
+            val needsFix = v != null && (!v.isValid || v.unusedDefIds.isNotEmpty())
+            if (!needsFix) {
                 TextButton(onClick = { onDismiss() }, enabled = false) { Text("最適化") }
             } else {
-                TextButton(onClick = { runOptimize(); onDismiss() }) { Text("最適化して閉じる") }
+                TextButton(onClick = {
+                    // 実際に最適化を実行してから、結果を再検証して表示する
+                    editor.optimizeSvgDocument()
+                    runValidate()
+                }) { Text("最適化実行") }
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
@@ -1091,13 +1134,17 @@ fun ShortcutsDialog(onDismiss: () -> Unit) {
                     "Ctrl+A" to "全選択",
                     "Ctrl+G / Ctrl+Shift+G" to "グループ化 / グループ解除",
                     "Ctrl+J" to "変形の繰り返し",
+                    "Ctrl+Shift+V" to "同じ位置へペースト",
                     "矢印キー" to "ナッジ（Shiftで10倍）",
                     "Ctrl+R" to "ルーラー表示",
+                    "Ctrl+0 / Ctrl+1" to "全体表示 / 100%",
+                    "Esc" to "ペン中止 / 選択解除",
                 ))
                 shortcutSection("ツール切替", listOf(
                     "V / A / P / N" to "選択 / アンカー / ペン / フリーハンド",
                     "R / O / L / T" to "長方形 / 楕円 / 直線 / テキスト",
-                    "I / H / G" to "スポイト / 手のひら / グラデーション",
+                    "I / H / G / M" to "スポイト / 手のひら / グラデーション / 計測",
+                    "X" to "塗りと線を入替",
                 ))
             }
         },
@@ -1125,6 +1172,7 @@ fun shortcutSection(title: String, items: List<Pair<String, String>>) {
 @Composable
 fun ShortcutCustomizeDialog(editor: Editor, onDismiss: () -> Unit) {
     var editingAction by remember { mutableStateOf<String?>(null) }
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     val actions = listOf(
         "undo" to "元に戻す", "redo" to "やり直す", "save" to "保存",
         "copy" to "コピー", "cut" to "カット", "paste" to "ペースト",
@@ -1138,10 +1186,34 @@ fun ShortcutCustomizeDialog(editor: Editor, onDismiss: () -> Unit) {
         text = {
             Column(
                 Modifier
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    // 「設定」押下後のキー入力を捕捉する（以前はキー待ち表示だけで
+                    // 入力を拾う機構が無く、カスタマイズが一切動かなかった）
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .onKeyEvent { ev ->
+                        val editing = editingAction
+                        if (editing == null) {
+                            false
+                        } else if (ev.type == KeyEventType.KeyUp) {
+                            true
+                        } else if (ev.key == Key.Escape) {
+                            editingAction = null // 待ち状態をキャンセル
+                            true
+                        } else {
+                            editor.setCustomShortcut(editing, ev.key.keyCode.toInt())
+                            editingAction = null
+                            true
+                        }
+                    },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("「設定」を押した後、割り当てたいキーを押してください（Ctrlキーとの組み合わせで登録）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LaunchedEffect(editingAction) {
+                    if (editingAction != null) {
+                        runCatching { focusRequester.requestFocus() }
+                    }
+                }
+                Text("「設定」を押した後、割り当てたいキーを押してください（Ctrlキーとの組み合わせで登録・Escでキャンセル）", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(actions, key = { it.first }) { (action, label) ->
                         val cur = editor.customKeyBindings[action]
@@ -1550,7 +1622,15 @@ fun CommentDialog(editor: Editor, onDismiss: () -> Unit) {
                 }
                 TextButton(onClick = {
                     if (newText.isNotBlank()) {
-                        editor.addComment(100.0, 100.0, newText, newAuthor)
+                        // 追加位置: 選択物の中心、無ければ現在のビュー中心
+                        //（以前は常に(100,100)固定で、全コメントが一点に重なった）
+                        val selBounds = editor.selection.firstOrNull()?.let { editor.trace.boundsOf(listOf(it)) }
+                        val pos = if (selBounds != null) {
+                            dev.svgpro.core.geom.Vec(selBounds.centerX, selBounds.centerY)
+                        } else {
+                            editor.screenToUser(dev.svgpro.core.geom.Vec(editor.viewportW / 2.0, editor.viewportH / 2.0))
+                        }
+                        editor.addComment(pos.x, pos.y, newText, newAuthor)
                         newText = ""
                         newAuthor = "匿名"
                     }
@@ -1928,26 +2008,3 @@ private fun cmykToRgb(c: Double, m: Double, y: Double, k: Double): Int {
 
 /** CMYK用4倍体（Javaレコード相当）。 */
 class Triple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
-
-/** SVG検証結果のスタブ（未実装のためダミー）。 */
-private data class SvgValidationResult(
-    val isValid: Boolean = true,
-    val duplicateIds: List<String> = emptyList(),
-    val danglingRefs: List<String> = emptyList(),
-    val unusedDefIds: List<String> = emptyList(),
-)
-
-/** SVG最適化のスタブ（未実装のためダミー）。 */
-private object SvgOptimizer {
-    fun optimize(svg: String?): String? = svg
-    fun validate(svg: String?): SvgValidationResult = SvgValidationResult()
-}
-
-/** CMYK同期のスタブ（未実装のためノーオペ）。 */
-private fun syncCmyk(argb: Int) {}
-
-/** 文章幅横スクロールのスタブ（未実装のためノーオペ修飾子）。 */
-private fun Modifier.svgHorizontalScroll(state: Any? = null): Modifier = this
-
-/** 文章スクロール状態のスタブ。 */
-private fun svgRememberScrollState(): Any = Unit

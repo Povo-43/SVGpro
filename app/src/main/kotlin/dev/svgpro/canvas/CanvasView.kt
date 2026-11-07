@@ -487,11 +487,13 @@ class CanvasView @JvmOverloads constructor(
         // 二重に適用するとズーム²スケールとなり、選択枠・ページ背景（viewMatrix1回分）と
         // 描画がズレる（書き出しは1回適用なので正確に見える、という症状の原因）。
         // キーフレームアニメーション適用（描画時のみ属性を一時上書き）
-        if (editor.isKeyframePlaying) {
+        // 再生中に加え、スクラブで時刻を指定した場合（t>0）もそのフレームを表示する
+        //（以前は再生中のみで、停止中のスクラブ/キーフレームクリックがキャンバスに反映されなかった）
+        if (editor.isKeyframePlaying || editor.keyframeTimeMs > 0L) {
             editor.applyAnimationAt(editor.keyframeTimeMs)
         }
         renderer.draw(canvas, editor)
-        if (editor.isKeyframePlaying) {
+        if (editor.isKeyframePlaying || editor.keyframeTimeMs > 0L) {
             editor.clearAnimationOverrides()
         }
 
@@ -534,9 +536,37 @@ class CanvasView @JvmOverloads constructor(
         hoverPos?.let { drawHoverCursor(canvas, it) }
         // 計測ラベル（画面固定・回転に影響されない）
         drawMeasureLabel(canvas, dark)
+        // コメントマーカー（画面固定・回転に影響されない）
+        drawCommentMarkers(canvas, dark)
         // ルーラー（画面固定・回転に影響されない）
         if (editor.showRulers) {
             drawRulers(canvas)
+        }
+    }
+
+    private val commentBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFE8A33D.toInt() }
+    private val commentBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f
+        color = 0xFF1A1A1A.toInt()
+    }
+    private val commentTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF1A1A1A.toInt()
+        textSize = 20f
+        textAlign = Paint.Align.CENTER
+    }
+
+    /** コメント/注釈のマーカー（以前はキャンバスに描画されず、ダイアログ一覧のみだった） */
+    private fun drawCommentMarkers(canvas: Canvas, dark: Boolean) {
+        val comments = editor.comments
+        if (comments.isEmpty()) return
+        commentBorderPaint.color = if (dark) 0xFF1A1A1A.toInt() else 0xFFE8E8E8.toInt()
+        commentTextPaint.color = if (dark) 0xFF1A1A1A.toInt() else 0xFF3A2A10.toInt()
+        for ((i, c) in comments.withIndex()) {
+            val p = editor.userToScreen(Vec(c.x, c.y))
+            canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 11f, commentBgPaint)
+            canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 11f, commentBorderPaint)
+            canvas.drawText((i + 1).toString(), p.x.toFloat(), p.y.toFloat() + 7f, commentTextPaint)
         }
     }
 

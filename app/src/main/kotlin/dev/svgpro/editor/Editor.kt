@@ -533,6 +533,10 @@ class Editor {
     /** 選択要素に新しいアニメーションを追加する */
     fun addAnimationToSelection(tag: String, attributeName: String?) {
         val target = selection.firstOrNull() ?: return
+        if (target.id == null) {
+            // 参照先としてidが必須。無い要素には自動採番する（以前は無反応だった）
+            target.setAttr("id", uniqueId("el"))
+        }
         val targetId = target.id ?: return
         val kind = when (tag) {
             "animate" -> AnimationKind.ANIMATE
@@ -853,6 +857,10 @@ class Editor {
     /** 選択オブジェクトにキーフレームトラックを新規作成（または既存トラックにキーフレーム追加） */
     fun addKeyframeForSelection(timeMs: Long = 0) {
         val target = selection.firstOrNull() ?: return
+        if (target.id == null) {
+            // トラックの参照先としてidが必須。無い要素には自動採番する（以前は無反応だった）
+            target.setAttr("id", uniqueId("el"))
+        }
         val targetId = target.id ?: return
         val targetName = labelFor(target)
 
