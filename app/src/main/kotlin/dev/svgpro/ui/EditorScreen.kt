@@ -109,6 +109,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
     var showBrushPreset by remember { mutableStateOf(false) }
     var showFontManager by remember { mutableStateOf(false) }
     var showFontToPath by remember { mutableStateOf(false) }
+    var showTextOnCircle by remember { mutableStateOf(false) }
     var animationMode by remember { mutableStateOf(false) }
     var selectedFontFamily by remember { mutableStateOf<String?>(null) }
     var exportPngUri by remember { mutableStateOf<android.net.Uri?>(null) }
@@ -336,6 +337,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onObjectSearch = { showObjectSearch = true },
                 onSvgAttributeEdit = { showSvgAttributeEdit = true },
                 onExportPdf = { pdfLauncher.launch("document.pdf") },
+                onTextOnCircle = { showTextOnCircle = true },
                 recentFiles = vm.recentFiles,
                 onOpenRecent = { uriStr -> openDocument(vm, android.net.Uri.parse(uriStr)) },
                 onExportSelection = { exportSvgLauncher.launch("selection.svg") },
@@ -512,6 +514,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
         if (showDocSettings) {
             DocumentSettingsDialog(editor = editor, refresh = refresh, onDismiss = { showDocSettings = false })
+        }
+
+        if (showTextOnCircle) {
+            TextOnCircleDialog(editor = editor, onDismiss = { showTextOnCircle = false })
         }
 
         if (showGuideCreate) {
@@ -950,6 +956,7 @@ private fun TopBar(
     onObjectSearch: () -> Unit = {},
     onSvgAttributeEdit: () -> Unit = {},
     onExportPdf: () -> Unit = {},
+    onTextOnCircle: () -> Unit = {},
 ) {
     // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
     // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
@@ -1362,6 +1369,7 @@ private val toolGroups: List<List<Pair<ToolType, ImageVector>>> = listOf(
         ToolType.ARC to AppIcons.Arc,
         ToolType.SECTOR to AppIcons.Sector,
         ToolType.SPIRAL to AppIcons.Spiral,
+        ToolType.TRIANGLE to AppIcons.Triangle,
     ),
     listOf(ToolType.TEXT to AppIcons.TextTool),
     listOf(
@@ -1387,6 +1395,7 @@ private fun toolLabel(t: ToolType): String = when (t) {
     ToolType.ARC -> "円弧"
     ToolType.SECTOR -> "扇形"
     ToolType.SPIRAL -> "螺旋"
+    ToolType.TRIANGLE -> "三角形"
     ToolType.TEXT -> "テキスト"
     ToolType.GRADIENT -> "グラデーション"
     ToolType.EYEDROPPER -> "スポイト"
@@ -1413,6 +1422,7 @@ private fun toolDescription(t: ToolType): String = when (t) {
     ToolType.GRADIENT -> "グラデーションツールを選択します"
     ToolType.EYEDROPPER -> "キャンバス上の色をサンプリングします"
     ToolType.MEASURE -> "2点間の距離と角度を計測します（Shiftで角度スナップ・計測後にガイド化できます）"
+    ToolType.TRIANGLE -> "三角形を作成します"
     ToolType.HAND -> "キャンバスをパン（移動）します"
 }
 
@@ -2089,6 +2099,7 @@ private fun CommandPalette(
     onShortcutCustomize: () -> Unit = {},
     onObjectSearch: () -> Unit = {},
     onSvgAttributeEdit: () -> Unit = {},
+    onTextOnCircle: () -> Unit = {},
     onPanel: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -2113,6 +2124,7 @@ private fun CommandPalette(
         onShortcutCustomize = onShortcutCustomize,
         onObjectSearch = onObjectSearch,
         onSvgAttributeEdit = onSvgAttributeEdit,
+        onTextOnCircle = onTextOnCircle,
         onExportPdf = onExportPdf,
         onPanel = onPanel,
     )
@@ -2186,6 +2198,7 @@ private fun commandList(
     onShortcutCustomize: () -> Unit = {},
     onObjectSearch: () -> Unit = {},
     onSvgAttributeEdit: () -> Unit = {},
+    onTextOnCircle: () -> Unit = {},
     onPanel: (String) -> Unit,
 ): List<Triple<String, String, () -> Unit>> {
     return listOf(
@@ -2242,6 +2255,7 @@ private fun commandList(
         Triple("選択をSVGで書き出し…", "") { onExportSelection() },
         Triple("PDF書き出し…", "") { onExportPdf() },
         Triple("SVG属性直接編集…", "") { onSvgAttributeEdit() },
+        Triple("テキストを円周に沿わせる…", "") { onTextOnCircle() },
     )
 }
 

@@ -61,6 +61,8 @@ enum class ToolType {
     TEXT, HAND, EYEDROPPER, GRADIENT,
     /** メジャー（計測）ツール: 2点間の距離・角度を計測しガイド化できる */
     MEASURE,
+    /** 三角形ツール */
+    TRIANGLE,
 }
 
 /** ノード参照（サブパスindex, ノードindex）— コアで定義されたものを使用 */
@@ -1314,6 +1316,12 @@ class Editor {
 
     /** ルーラー表示単位。 */
     enum class RulerUnit { PX, MM, CM, IN, PT }
+
+    /** ページ境界表示。 */
+    var showPageBorder by mutableStateOf(true)
+
+    /** セーフエリア表示（ページ内90%領域）。 */
+    var showSafeArea by mutableStateOf(false)
 
     /** ルーラー単位（user=pxを基準にDPIで物理単位へ換算）。 */
     var rulerUnit by mutableStateOf(RulerUnit.PX)
@@ -2671,6 +2679,32 @@ class Editor {
         }
     }
 
+    /** 選択レイヤー(g要素)の不透明度を設定。単一要素専用。 */
+    fun applyLayerOpacity(opacity: Double) {
+        val el = selection.firstOrNull() ?: return
+        if (el.tag != "g" && el.tag != "a") return
+        commit("layer-opacity") { batch ->
+            batch.touch(el)
+            StyleUtil.setProperty(el, "opacity", dev.svgpro.core.util.Numbers.format(opacity.coerceIn(0.0, 1.0)))
+        }
+    }
+
+    /** 選択レイヤーの不透明度を取得（未設定なら 1.0）。 */
+    fun selectionLayerOpacity(): Double {
+        return selection.firstOrNull()?.let { v ->
+            val s = StyleUtil.getProperty(v, "opacity")
+            if (s == null) 1.0 else dev.svgpro.core.util.Numbers.parse(s) ?: 1.0
+        } ?: 1.0
+    }
+
+    /** 指定要素の不透明度を設定（レイヤー/g要素専用）。 */
+    fun applyOpacityToElement(el: Element, opacity: Double) {
+        commit("element-opacity") { batch ->
+            batch.touch(el)
+            StyleUtil.setProperty(el, "opacity", dev.svgpro.core.util.Numbers.format(opacity.coerceIn(0.0, 1.0)))
+        }
+    }
+
     /** テキスト装飾（underline / line-through / none）を選択テキストへ適用 */
     fun applyTextDecorationSelection(decoration: String) {
         if (selection.isEmpty()) return
@@ -3048,6 +3082,18 @@ class Editor {
                     }
                 }
                 Element("path").apply { setAttr("d", PathData(segs).write()) }
+            }
+            ToolType.TRIANGLE -> {
+                // ドラッグ開始点を頂点、反対方向の辺を基底とする三角形を生成
+                val center = Vec((startUser.x + endUser.x) / 2, (startUser.y + endUser.y) / 2)
+                val r = hypot(endUser.x - startUser.x, endUser.y - startUser.y)
+                if (r < 1.0) return null
+                // ドラッグ方向を頂点方向とする
+                val angle = atan2(endUser.y - startUser.y, endUser.x - startUser.x)
+                val p1 = Vec(center.x + r * kotlin.math.cos(angle), center.y + r * kotlin.math.sin(angle))
+                val p2 = Vec(center.x + r * kotlin.math.cos(angle + 2.0 * Math.PI / 3), center.y + r * kotlin.math.sin(angle + 2.0 * Math.PI / 3))
+                val p3 = Vec(center.x + r * kotlin.math.cos(angle + 4.0 * Math.PI / 3), center.y + r * kotlin.math.sin(angle + 4.0 * Math.PI / 3))
+                Element("polygon").apply { setAttr("points", Shapes.pointsString(PathData.polygon(listOf(p1, p2, p3)))) }
             }
             else -> null
         }

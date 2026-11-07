@@ -507,7 +507,19 @@ class CanvasView @JvmOverloads constructor(
         }
 
         // ページ枠
-        canvas.drawRect(pageScreen, pageBorderPaint)
+        if (editor.showPageBorder) {
+            canvas.drawRect(pageScreen, pageBorderPaint)
+        }
+        // セーフエリア（ページ内90%領域）
+        if (editor.showSafeArea) {
+            val safe = RectF(
+                pageScreen.left + pageScreen.width() * 0.05f,
+                pageScreen.top + pageScreen.height() * 0.05f,
+                pageScreen.right - pageScreen.width() * 0.05f,
+                pageScreen.bottom - pageScreen.height() * 0.05f,
+            )
+            canvas.drawRect(safe, pageBorderPaint)
+        }
 
         // ガイド線
         drawGuides(canvas)

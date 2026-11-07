@@ -12,9 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.svg.Element
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.Trace
+import dev.svgpro.core.util.Numbers
 
 /**
  * レイヤー/オブジェクトパネル。
@@ -107,6 +109,12 @@ fun ObjectRow(editor: Editor, row: TreeRow, onRename: () -> Unit) {
     val selected = editor.isSelected(el) || editor.selection.any { editor.trace.itemOf(it)?.layer === el }
     val locked = el.attr(dev.svgpro.editor.Trace.LOCK_ATTR) == "1"
     val hidden = dev.svgpro.core.model.StyleUtil.getProperty(el, "display") == "none"
+
+    var opacityText by remember(el) { mutableStateOf(dev.svgpro.core.util.Numbers.format(dev.svgpro.core.util.Numbers.parse(el.attr("opacity")) ?: 1.0)) }
+    LaunchedEffect(el) {
+        opacityText = dev.svgpro.core.util.Numbers.format(dev.svgpro.core.util.Numbers.parse(el.attr("opacity")) ?: 1.0)
+    }
+
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent,
         modifier = Modifier.fillMaxWidth().clickable {
@@ -124,6 +132,23 @@ fun ObjectRow(editor: Editor, row: TreeRow, onRename: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).clickable { onRename() },
             )
+            // 不透明度スライダー（レイヤー/g要素のみ）
+            if (el.tag == "g" || el.tag == "a") {
+                Row(
+                    Modifier.padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("不透明", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(34.dp))
+                    Slider(
+                        value = (dev.svgpro.core.util.Numbers.parse(opacityText) ?: 1.0).toFloat(),
+                        onValueChange = {
+                            opacityText = dev.svgpro.core.util.Numbers.format(it.toDouble())
+                            editor.applyOpacityToElement(el, it.toDouble())
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
             Icon(
                 if (hidden) AppIcons.EyeClosed else AppIcons.EyeOpen,
                 contentDescription = if (hidden) "表示" else "非表示",

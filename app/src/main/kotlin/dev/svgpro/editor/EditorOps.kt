@@ -1252,6 +1252,45 @@ fun Editor.makeTextPath(): Boolean {
     return true
 }
 
+/** テキストを円周に沿わせる（円形パスを自動作成してtextPathで関連付け）。 */
+fun Editor.createTextOnCircle(cx: Double, cy: Double, radius: Double, textContent: String): Boolean {
+    if (textContent.isEmpty()) return false
+    val n = dev.svgpro.core.util.Numbers
+    val pathId = uniqueId("circlepath")
+    // 円形パスを作成
+    val circle = dev.svgpro.core.svg.Element("circle")
+    circle.setAttr("id", pathId)
+    circle.setAttr("cx", n.format(cx))
+    circle.setAttr("cy", n.format(cy))
+    circle.setAttr("r", n.format(radius.coerceAtLeast(1.0)))
+    circle.setAttr("fill", "none")
+    circle.setAttr("stroke", "none")
+    // defs に追加して可視化しない
+    val defs = doc.defsElement()
+    defs.children.add(circle)
+    // テキスト要素を作成
+    val text = dev.svgpro.core.svg.Element("text")
+    text.setAttr("x", "0")
+    text.setAttr("y", "0")
+    text.setAttr("text-anchor", "middle")
+    text.setAttr("dominant-baseline", "central")
+    // テキストの内容をtextPathに移動
+    val tp = dev.svgpro.core.svg.Element("textPath")
+    tp.setAttr("href", "#$pathId")
+    tp.setAttr("xlink:href", "#$pathId")
+    tp.setAttr("startOffset", "50%")
+    tp.setTextContent(textContent)
+    text.children.add(tp)
+    // ルートにテキストを追加
+    doc.root.children.add(text)
+    // テキストとパスを選択
+    selection.clear()
+    selection.add(circle)
+    selection.add(text)
+    // textPathで関連付け
+    return makeTextPath()
+}
+
 // ―――――――――――――――――――――――――――――――――――――――――――
 // ノード編集（拡張）
 // ―――――――――――――――――――――――――――――――――――――――――――

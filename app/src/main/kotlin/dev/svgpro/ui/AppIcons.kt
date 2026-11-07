@@ -99,6 +99,7 @@ object AppIcons {
     val Sector: ImageVector = icon("Sector", "M12,12 L12,2 A10,10 0 0 1 22,12 Z M12,22 L12,12 L2,12 A10,10 0 0 1 12,22 Z", stroke = 1.5f)
     val Spiral: ImageVector = icon("Spiral", "M12,12 C16,12 16,16 12,16 C8,16 8,8 12,8", stroke = 1.5f)
     val Polyline: ImageVector = icon("Polyline", "M3,17 L9,9 L14,14 L21,5")
+    val Triangle: ImageVector = icon("Triangle", "M12,4 L20,20 L4,20 Z")
 
     // ―― トグル用アイコン ――
     val Magnet: ImageVector = icon(

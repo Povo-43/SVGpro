@@ -42,6 +42,7 @@ import dev.svgpro.core.model.StyleUtil
 import dev.svgpro.core.svg.Element
 import dev.svgpro.editor.Editor
 import dev.svgpro.editor.applyTransform
+import dev.svgpro.editor.createTextOnCircle
 
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.setHandleNumeric
@@ -611,6 +612,92 @@ fun ColorPickerDialog(
 }
 
 private val CircleShape2 = androidx.compose.foundation.shape.CircleShape
+
+/**
+ * テキストを円周に沿わせるダイアログ。
+ * テキスト内容と円の半径を指定して、円形パス上にテキストを配置する。
+ */
+@Composable
+fun TextOnCircleDialog(
+    editor: Editor,
+    onDismiss: () -> Unit,
+) {
+    var textContent by remember { mutableStateOf("Hello") }
+    var radiusText by remember { mutableStateOf("100") }
+    var cxText by remember { mutableStateOf("100") }
+    var cyText by remember { mutableStateOf("100") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("テキストを円周に沿わせる") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().widthIn(min = 320.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("テキスト", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+                    OutlinedTextField(
+                        value = textContent,
+                        onValueChange = { textContent = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("中心X", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+                    OutlinedTextField(
+                        value = cxText,
+                        onValueChange = { cxText = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                    Text("中心Y", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+                    OutlinedTextField(
+                        value = cyText,
+                        onValueChange = { cyText = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("半径", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(60.dp))
+                    OutlinedTextField(
+                        value = radiusText,
+                        onValueChange = { radiusText = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val cx = dev.svgpro.core.util.Numbers.parse(cxText) ?: 100.0
+                val cy = dev.svgpro.core.util.Numbers.parse(cyText) ?: 100.0
+                val r = dev.svgpro.core.util.Numbers.parse(radiusText) ?: 50.0
+                editor.createTextOnCircle(cx, cy, r.coerceAtLeast(1.0), textContent)
+                onDismiss()
+            }) { Text("作成") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
 
 /**
  * 色の一括置換ダイアログ。

@@ -150,7 +150,8 @@ class ToolController(val editor: Editor) {
             }
             ToolType.RECT, ToolType.RRECT, ToolType.ELLIPSE, ToolType.LINE,
             ToolType.POLYGON, ToolType.STAR, ToolType.POLYLINE,
-            ToolType.ARC, ToolType.SECTOR, ToolType.SPIRAL -> {
+            ToolType.ARC, ToolType.SECTOR, ToolType.SPIRAL,
+            ToolType.TRIANGLE -> {
                 mode = Mode.SHAPE
                 editor.shapeDraft = Triple(user, user, editor.tool)
             }
