@@ -71,14 +71,124 @@ fun TextInputDialog(
     )
 }
 
+/**
+ * ガイド作成ダイアログ（水平/垂直/任意角度+通過点）。
+ * ロゴデザイン向けに数値指定でガイドを引ける。
+ */
+@Composable
+fun GuideCreateDialog(
+    editor: dev.svgpro.editor.Editor,
+    onDismiss: () -> Unit,
+) {
+    val vb = editor.doc.viewBox
+    val cx = vb.minX + vb.width / 2
+    val cy = vb.minY + vb.height / 2
+    var kind by remember { mutableStateOf(0) } // 0=水平 1=垂直 2=角度
+    var posText by remember { mutableStateOf(dev.svgpro.core.util.Numbers.format(if (kind == 0) cy else cx)) }
+    var angleText by remember { mutableStateOf("0") }
+    var pxText by remember { mutableStateOf(dev.svgpro.core.util.Numbers.format(cx)) }
+    var pyText by remember { mutableStateOf(dev.svgpro.core.util.Numbers.format(cy)) }
+    var lockOn by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ガイドを作成") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("水平" to 0, "垂直" to 1, "角度" to 2).forEach { (label, k) ->
+                        FilterChip(
+                            selected = kind == k,
+                            onClick = {
+                                kind = k
+                                posText = dev.svgpro.core.util.Numbers.format(if (k == 0) cy else cx)
+                            },
+                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
+                }
+                if (kind == 2) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("角度°", style = MaterialTheme.typography.labelMedium)
+                        OutlinedTextField(
+                            value = angleText,
+                            onValueChange = { angleText = it },
+                            modifier = Modifier.width(70.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                        Text("（0=右・時計回りが正）", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = pxText,
+                            onValueChange = { pxText = it },
+                            label = { Text("通過点X") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                        OutlinedTextField(
+                            value = pyText,
+                            onValueChange = { pyText = it },
+                            label = { Text("通過点Y") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = posText,
+                        onValueChange = { posText = it },
+                        label = { Text(if (kind == 0) "Y位置" else "X位置") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(lockOn, onCheckedChange = { lockOn = it })
+                    Text("ロックして作成", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val g = when (kind) {
+                    0 -> dev.svgpro.core.util.Numbers.parse(posText)?.let {
+                        dev.svgpro.core.model.Guide(horizontal = true, pos = it, locked = lockOn)
+                    }
+                    1 -> dev.svgpro.core.util.Numbers.parse(posText)?.let {
+                        dev.svgpro.core.model.Guide(horizontal = false, pos = it, locked = lockOn)
+                    }
+                    else -> {
+                        val ang = dev.svgpro.core.util.Numbers.parse(angleText)
+                        val px = dev.svgpro.core.util.Numbers.parse(pxText)
+                        val py = dev.svgpro.core.util.Numbers.parse(pyText)
+                        if (ang != null && px != null && py != null) {
+                            dev.svgpro.core.model.Guide.angled(ang, dev.svgpro.core.geom.Vec(px, py), locked = lockOn)
+                        } else null
+                    }
+                }
+                if (g != null) editor.addGuideAt(g)
+                onDismiss()
+            }) { Text("作成") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
+    )
+}
+
 @Composable
 fun NumberInputDialog(
     title: String,
     initial: String,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
-) {
-    var text by remember { mutableStateOf(initial) }
+) {    var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -686,6 +796,25 @@ fun DocumentSettingsDialog(
                             dev.svgpro.core.util.Numbers.parse(dpiText)?.let { if (it > 0) editor.rulerDpi = it }
                         }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
                     }
+                }
+                // 回転スナップ角（ロゴ作業向け）
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    var rotateSnapText by remember { mutableStateOf(editor.rotateSnapStep.toString()) }
+                    LaunchedEffect(editor.rotateSnapStep) { rotateSnapText = editor.rotateSnapStep.toString() }
+                    OutlinedTextField(
+                        value = rotateSnapText,
+                        onValueChange = { rotateSnapText = it },
+                        label = { Text("回転スナップ角°") },
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.width(120.dp),
+                        singleLine = true,
+                    )
+                    TextButton(onClick = {
+                        dev.svgpro.core.util.Numbers.parse(rotateSnapText)?.let {
+                            if (it >= 1.0) editor.rotateSnapStep = it
+                        }
+                    }) { Text("適用", style = MaterialTheme.typography.labelSmall) }
+                    Text("回転ハンドル・計測のShiftスナップ", style = MaterialTheme.typography.bodySmall)
                 }
                 // アートボード管理
                 var abNameText by remember { mutableStateOf("") }

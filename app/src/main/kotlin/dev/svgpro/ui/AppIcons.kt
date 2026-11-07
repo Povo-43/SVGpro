@@ -213,6 +213,11 @@ object AppIcons {
         "M4,4 L20,4 L20,20 L4,20 Z M7,7 L13,7 L13,13 L7,13 Z M12,12 L17,12 L17,17 L12,17 Z",
         stroke = 1.3f,
     )
+    val Measure: ImageVector = icon(
+        "Measure",
+        "M3,17 L17,3 L21,7 L7,21 Z M7.5,12.5 L9.5,14.5 M10.5,9.5 L12.5,11.5 M13.5,6.5 L15.5,8.5",
+        stroke = 1.4f,
+    )
     val Grid: ImageVector = icon("Grid", "M4,4 L20,4 L20,20 L4,20 Z M4,9.3 L20,9.3 M4,14.6 L20,14.6 M9.3,4 L9.3,20 M14.6,4 L14.6,20", stroke = 1.2f)
     val Layers: ImageVector = icon("Layers", "M12,3 L21,8 L12,13 L3,8 Z M5.5,12 L3,13.5 L12,18.5 L21,13.5 L18.5,12 M7,15.5 L3,17.8 L12,22.5 L21,17.8 L17,15.5")
     val Palette: ImageVector = icon(

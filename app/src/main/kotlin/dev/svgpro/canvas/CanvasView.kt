@@ -526,14 +526,60 @@ class CanvasView @JvmOverloads constructor(
         if (editor.tool == ToolType.GRADIENT) {
             drawGradientHandles(canvas)
         }
+        // 計測線（メジャーツール）
+        drawMeasureLine(canvas, dark)
         canvas.restore()
 
         // hover（画面固定・回転に影響されない）
         hoverPos?.let { drawHoverCursor(canvas, it) }
+        // 計測ラベル（画面固定・回転に影響されない）
+        drawMeasureLabel(canvas, dark)
         // ルーラー（画面固定・回転に影響されない）
         if (editor.showRulers) {
             drawRulers(canvas)
         }
+    }
+
+    private val measurePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.4f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f), 0f)
+        color = 0xFF42A5F5.toInt()
+    }
+
+    /** メジャーツールの計測線（user空間→回転ブロック内で描画） */
+    private fun drawMeasureLine(canvas: Canvas, dark: Boolean) {
+        val s = editor.measureStart ?: return
+        val e = editor.measureEnd ?: return
+        val a = editor.userToScreen(s)
+        val b = editor.userToScreen(e)
+        measurePaint.color = if (dark) CanvasTheme.Dark.selection else CanvasTheme.Light.selection
+        canvas.drawLine(a.x.toFloat(), a.y.toFloat(), b.x.toFloat(), b.y.toFloat(), measurePaint)
+        for (p in listOf(a, b)) {
+            canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 4f, handlePaint)
+            canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 4f, handleStrokePaint)
+        }
+    }
+
+    /** 計測値ラベル（長さ+角度。画面固定で回転に影響されない） */
+    private fun drawMeasureLabel(canvas: Canvas, dark: Boolean) {
+        val s = editor.measureStart ?: return
+        val e = editor.measureEnd ?: return
+        if (s.distanceTo(e) < 1e-6) return
+        val len = editor.rulerLength(s.distanceTo(e))
+        var ang = -Math.toDegrees(kotlin.math.atan2(e.y - s.y, e.x - s.x))
+        ang = (ang % 360.0 + 360.0) % 360.0
+        if (ang > 180.0) ang -= 360.0
+        val text = dev.svgpro.core.util.Numbers.format(len, 2) + editor.rulerUnitLabel() +
+            "  ∠" + dev.svgpro.core.util.Numbers.format(ang, 1) + "°"
+        val mid = editor.userToScreen(Vec((s.x + e.x) / 2.0, (s.y + e.y) / 2.0))
+        val x = mid.x.toFloat() + 12f
+        val y = mid.y.toFloat() - 12f
+        rulerTextPaint.color = if (dark) CanvasTheme.Dark.rulerText else CanvasTheme.Light.rulerText
+        val tw = rulerTextPaint.measureText(text)
+        val bg = android.graphics.RectF(x - 6f, y - rulerTextPaint.textSize - 6f, x + tw + 8f, y + 6f)
+        canvas.drawRoundRect(bg, 4f, 4f, rulerPaint)
+        canvas.drawText(text, x, y, rulerTextPaint)
     }
 
     private val guidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

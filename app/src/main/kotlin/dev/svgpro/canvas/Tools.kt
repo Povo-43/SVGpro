@@ -76,7 +76,7 @@ class ToolController(val editor: Editor) {
     private var downTime = 0L
     private var moved = false
 
-    enum class Mode { NONE, MOVE, SCALE, ROTATE, MARQUEE, LASSO, NODE_DRAG, HANDLE_DRAG, SHAPE, FREEHAND, PAN, GRADIENT_DRAG }
+    enum class Mode { NONE, MOVE, SCALE, ROTATE, MARQUEE, LASSO, NODE_DRAG, HANDLE_DRAG, SHAPE, FREEHAND, PAN, GRADIENT_DRAG, MEASURE }
 
     enum class SelectionHandle { TOP_LEFT, TOP, TOP_RIGHT, RIGHT, BOTTOM_RIGHT, BOTTOM, BOTTOM_LEFT, LEFT, ROTATE }
 
@@ -138,6 +138,12 @@ class ToolController(val editor: Editor) {
             ToolType.NODE -> onNodeDown(user, screen, ev, doubleTap)
             ToolType.PEN -> onPenDown(user, isStylus)
             ToolType.GRADIENT -> onGradientDown(user, screen)
+            ToolType.MEASURE -> {
+                // 計測開始（端点はオブジェクト/グリッドにスナップ）
+                val p = editor.snapPoint(user, ignore = emptyList())
+                mode = Mode.MEASURE
+                editor.updateMeasure(p, p)
+            }
             ToolType.FREEHAND -> {
                 mode = Mode.FREEHAND
                 freehandActive = true
@@ -188,6 +194,19 @@ class ToolController(val editor: Editor) {
 
         when (mode) {
             Mode.PAN -> panBy?.invoke(screen.x - lastScreen.x, screen.y - lastScreen.y)
+            Mode.MEASURE -> {
+                val s = editor.measureStart ?: return
+                var e2 = editor.snapPoint(user, ignore = emptyList())
+                // Shift で回転スナップ角（既定15°）ごとの角度へ吸着
+                if (isShift(ev) && s.distanceTo(e2) > 1e-6) {
+                    val step = Math.toRadians(editor.rotateSnapStep.coerceAtLeast(0.1))
+                    val ang = atan2(e2.y - s.y, e2.x - s.x)
+                    val snapped = kotlin.math.round(ang / step) * step
+                    val dist = s.distanceTo(e2)
+                    e2 = Vec(s.x + kotlin.math.cos(snapped) * dist, s.y + kotlin.math.sin(snapped) * dist)
+                }
+                editor.updateMeasure(s, e2)
+            }
             Mode.GRADIENT_DRAG -> {
                 val handles = editor.gradientHandlePoints() ?: return
                 val s = handles.second
@@ -238,7 +257,8 @@ class ToolController(val editor: Editor) {
                 val a2 = atan2(user.y - rotateCenter.y, user.x - rotateCenter.x)
                 var deg = Math.toDegrees(a2 - a1)
                 if (isShift(ev)) {
-                    deg = (deg / 15.0).let { kotlin.math.round(it) * 15.0 }
+                    val step = editor.rotateSnapStep.coerceAtLeast(0.1)
+                    deg = (deg / step).let { kotlin.math.round(it) * step }
                 }
                 editor.rotateSelection(deg, rotateCenter)
             }
@@ -403,6 +423,13 @@ class ToolController(val editor: Editor) {
                 }
             }
             Mode.PAN -> {}
+            Mode.MEASURE -> {
+                val s = editor.measureStart
+                val e2 = editor.measureEnd
+                if (s != null && e2 != null) {
+                    editor.commitMeasure(s, e2)
+                }
+            }
             else -> {}
         }
         mode = Mode.NONE

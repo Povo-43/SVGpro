@@ -59,6 +59,8 @@ enum class ToolType {
     RECT, RRECT, ELLIPSE, LINE, POLYGON, STAR, POLYLINE,
     ARC, SECTOR, SPIRAL,
     TEXT, HAND, EYEDROPPER, GRADIENT,
+    /** メジャー（計測）ツール: 2点間の距離・角度を計測しガイド化できる */
+    MEASURE,
 }
 
 /** ノード参照（サブパスindex, ノードindex）— コアで定義されたものを使用 */
@@ -1378,6 +1380,86 @@ class Editor {
     var snapToNode = false
     /** オブジェクトの中心へスナップ */
     var snapToCenter = true
+
+    /** 回転ハンドルのShiftスナップ角（度）。ロゴ作業向けに設定可能 */
+    var rotateSnapStep by mutableStateOf(15.0)
+
+    // ―――― メジャー（計測）ツール ――――
+    /** 計測中/直近の計測線の両端（user座標）。ツール切替後も残り、次の計測で更新される */
+    var measureStart: Vec? = null
+    var measureEnd: Vec? = null
+
+    /** 直近の計測結果（StatusBar表示・ガイド化用） */
+    var lastMeasure by mutableStateOf<Pair<Vec, Vec>?>(null)
+        private set
+
+    /** 計測を開始/更新する（Tools から呼ぶ） */
+    fun updateMeasure(start: Vec, end: Vec?) {
+        measureStart = start
+        measureEnd = end
+        onChanged()
+    }
+
+    /** 計測を確定する（lastMeasure を更新。短すぎる場合は計測なし扱い） */
+    fun commitMeasure(start: Vec, end: Vec) {
+        measureStart = start
+        measureEnd = end
+        lastMeasure = if (start.distanceTo(end) >= 1e-6) start to end else null
+        onChanged()
+    }
+
+    fun clearMeasure() {
+        measureStart = null
+        measureEnd = null
+        lastMeasure = null
+        onChanged()
+    }
+
+    /** 計測の長さ（user単位） */
+    fun measureLength(): Double? {
+        val m = lastMeasure ?: return null
+        return m.first.distanceTo(m.second)
+    }
+
+    /**
+     * 計測の角度（度・表示用）。0=右向き、反時計回り（画面上向き）が正。
+     * SVGはY軸下向きのため、内部角度の符号を反転して表示する。
+     */
+    fun measureAngleDeg(): Double? {
+        val (a, b) = lastMeasure ?: return null
+        var d = -Math.toDegrees(kotlin.math.atan2(b.y - a.y, b.x - a.x))
+        d = (d % 360.0 + 360.0) % 360.0
+        if (d > 180.0) d -= 360.0
+        return d
+    }
+
+    /** 計測線のuser空間角度（度。0=右、画面下向きが正）。ガイド生成用 */
+    fun measureUserAngleDeg(): Double? {
+        val (a, b) = lastMeasure ?: return null
+        return Math.toDegrees(kotlin.math.atan2(b.y - a.y, b.x - a.x))
+    }
+
+    /** 直近の計測線を角度ガイドとして追加する */
+    fun createMeasureGuide(): Boolean {
+        val a = lastMeasure?.first ?: return false
+        val ang = measureUserAngleDeg() ?: return false
+        addGuide(Guide.angled(ang, a))
+        return true
+    }
+
+    /** アートボード中心へ水平/垂直ガイドを追加する（ロゴの中心軸用） */
+    fun addCenterGuides() {
+        val vb = doc.viewBox
+        addGuide(Guide(horizontal = true, pos = vb.minY + vb.height / 2))
+        addGuide(Guide(horizontal = false, pos = vb.minX + vb.width / 2))
+        onChanged()
+    }
+
+    /** ガイドを追加する（ガイド作成ダイアログ用。位置/角度を指定） */
+    fun addGuideAt(guide: Guide) {
+        addGuide(guide)
+        onChanged()
+    }
     /** 移動中のスマートガイド（他オブジェクトとの整列補助線） */
     var smartGuides = true
     /** ガイド線へスナップ */

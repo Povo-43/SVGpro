@@ -63,6 +63,7 @@ import dev.svgpro.editor.renderToBitmap
 import dev.svgpro.editor.selectSameFill
 import dev.svgpro.editor.selectSameStroke
 import dev.svgpro.editor.selectSameKind
+import dev.svgpro.editor.selectionGaps
 import dev.svgpro.editor.transformAgain
 import dev.svgpro.editor.ToolType
 import java.io.BufferedReader
@@ -113,6 +114,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
 
     var showRestoreConfirm by remember { mutableStateOf(false) }
     var showDocSettings by remember { mutableStateOf(false) }
+    var showGuideCreate by remember { mutableStateOf(false) }
 
     /** キャンバスビューの画面内位置（インラインテキスト入力の配置に使用） */
     var canvasOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -296,6 +298,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onSvgSource = { showSvgSource = true },
                 onSvgOptimize = { showSvgOptimize = true },
                 onCommandPalette = { showCommandPalette = true },
+                onGuideCreate = { showGuideCreate = true },
                 recentFiles = vm.recentFiles,
                 onOpenRecent = { uriStr -> openDocument(vm, android.net.Uri.parse(uriStr)) },
                 onExportSelection = { exportSvgLauncher.launch("selection.svg") },
@@ -467,6 +470,10 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
             DocumentSettingsDialog(editor = editor, refresh = refresh, onDismiss = { showDocSettings = false })
         }
 
+        if (showGuideCreate) {
+            GuideCreateDialog(editor = editor, onDismiss = { showGuideCreate = false })
+        }
+
         if (showNewDoc) {
             NewDocumentDialog(
                 onDismiss = { showNewDoc = false },
@@ -625,6 +632,7 @@ fun EditorScreen(vm: EditorViewModel = viewModel()) {
                 onImageImport = { imageImportLauncher.launch(arrayOf("image/*")) },
                 onExportPng = { pngLauncher.launch("export.png") },
                 onExportSelection = { exportSvgLauncher.launch("selection.svg") },
+                onGuideCreate = { showGuideCreate = true },
                 onPanel = { name -> dock.toggle(name) },
             )
         }
@@ -753,6 +761,7 @@ private fun handleKey(editor: Editor, keyCode: Int, event: android.view.KeyEvent
         keyCode == android.view.KeyEvent.KEYCODE_T && !ctrl -> { editor.tool = ToolType.TEXT; true }
         keyCode == android.view.KeyEvent.KEYCODE_I && !ctrl -> { editor.tool = ToolType.EYEDROPPER; true }
         keyCode == android.view.KeyEvent.KEYCODE_H && !ctrl -> { editor.tool = ToolType.HAND; true }
+        keyCode == android.view.KeyEvent.KEYCODE_M && !ctrl -> { editor.tool = ToolType.MEASURE; true }
         keyCode == android.view.KeyEvent.KEYCODE_G && !ctrl -> { editor.tool = ToolType.GRADIENT; true }
         keyCode == android.view.KeyEvent.KEYCODE_X && !ctrl -> { editor.swapFillStrokeSelection(); true }
         keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT && editor.selection.isNotEmpty() -> { nudge(editor, if (shift) -10.0 else -1.0, 0.0); true }
@@ -869,6 +878,7 @@ private fun TopBar(
     onOpenRecent: (String) -> Unit = {},
     onExportSelection: () -> Unit = {},
     onDuplicateDoc: () -> Unit = {},
+    onGuideCreate: () -> Unit = {},
 ) {
     // refreshはエディタ変更のたびに変化するInt。パラメータ評価によりstrong skippingを
     // 打ち消して再構成が保証され、zoom/dirty/canUndo等の素のフィールド読み取りが更新される
@@ -995,6 +1005,16 @@ private fun TopBar(
                         text = { Text("アウトライン表示") },
                         leadingIcon = { Icon(AppIcons.Outline, null, modifier = Modifier.size(18.dp)) },
                         onClick = { onMenuDismiss(); editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("アートボード中心にガイド") },
+                        leadingIcon = { Icon(AppIcons.Grid, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); editor.addCenterGuides() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ガイドを作成…") },
+                        leadingIcon = { Icon(AppIcons.Ruler, null, modifier = Modifier.size(18.dp)) },
+                        onClick = { onMenuDismiss(); onGuideCreate() },
                     )
                     HorizontalDivider()
                     SectionTitle("パネル")
@@ -1243,6 +1263,7 @@ private val toolGroups: List<List<Pair<ToolType, ImageVector>>> = listOf(
     listOf(
         ToolType.GRADIENT to AppIcons.GradientTool,
         ToolType.EYEDROPPER to AppIcons.Eyedropper,
+        ToolType.MEASURE to AppIcons.Measure,
         ToolType.HAND to AppIcons.Hand,
     ),
 )
@@ -1265,6 +1286,7 @@ private fun toolLabel(t: ToolType): String = when (t) {
     ToolType.TEXT -> "テキスト"
     ToolType.GRADIENT -> "グラデーション"
     ToolType.EYEDROPPER -> "スポイト"
+    ToolType.MEASURE -> "計測"
     ToolType.HAND -> "手のひら"
 }
 
@@ -1286,6 +1308,7 @@ private fun toolDescription(t: ToolType): String = when (t) {
     ToolType.TEXT -> "テキストオブジェクトを作成します"
     ToolType.GRADIENT -> "グラデーションツールを選択します"
     ToolType.EYEDROPPER -> "キャンバス上の色をサンプリングします"
+    ToolType.MEASURE -> "2点間の距離と角度を計測します（Shiftで角度スナップ・計測後にガイド化できます）"
     ToolType.HAND -> "キャンバスをパン（移動）します"
 }
 
@@ -1681,6 +1704,40 @@ private fun StatusBar(editor: Editor, refresh: Int, compact: Boolean) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                // 2選択間の隙間（ロゴの字間・余白チェック用）
+                if (selCount == 2) {
+                    val gaps = editor.selectionGaps()
+                    if (gaps != null) {
+                        val unit = editor.rulerUnitLabel()
+                        val hGap = editor.rulerLength(gaps.first)
+                        val vGap = editor.rulerLength(gaps.second)
+                        Text(
+                            "隙間 H${dev.svgpro.core.util.Numbers.format(hGap, 1)}$unit / V${dev.svgpro.core.util.Numbers.format(vGap, 1)}$unit",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                // 直近の計測（メジャーツール）: 長さ+角度+ガイド化
+                val measure = editor.lastMeasure
+                if (measure != null) {
+                    val len = editor.rulerLength(editor.measureLength() ?: 0.0)
+                    val ang = editor.measureAngleDeg() ?: 0.0
+                    val unit = editor.rulerUnitLabel()
+                    Text(
+                        "計測 ${dev.svgpro.core.util.Numbers.format(len, 2)}$unit ∠${dev.svgpro.core.util.Numbers.format(ang, 1)}°",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(
+                        onClick = { editor.createMeasureGuide() },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) { Text("ガイド化", style = MaterialTheme.typography.labelSmall) }
+                    TextButton(
+                        onClick = { editor.clearMeasure() },
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) { Text("消去", style = MaterialTheme.typography.labelSmall) }
+                }
             }
             Spacer(Modifier.weight(1f))
 
@@ -1911,6 +1968,7 @@ private fun CommandPalette(
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
     onExportSelection: () -> Unit = {},
+    onGuideCreate: () -> Unit = {},
     onPanel: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -1925,6 +1983,7 @@ private fun CommandPalette(
         onImageImport = onImageImport,
         onExportPng = onExportPng,
         onExportSelection = onExportSelection,
+        onGuideCreate = onGuideCreate,
         onPanel = onPanel,
     )
     val filtered = if (query.isBlank()) all else all.filter { it.first.contains(query, ignoreCase = true) }
@@ -1986,6 +2045,7 @@ private fun commandList(
     onImageImport: () -> Unit,
     onExportPng: () -> Unit,
     onExportSelection: () -> Unit = {},
+    onGuideCreate: () -> Unit = {},
     onPanel: (String) -> Unit,
 ): List<Triple<String, String, () -> Unit>> {
     return listOf(
@@ -2019,6 +2079,9 @@ private fun commandList(
         Triple("アウトライン表示", "") { editor.showOutlineMode = !editor.showOutlineMode; editor.onChanged() },
         Triple("選択にフィット", "") { editor.fitToSelection() },
         Triple("全体表示", "") { editor.fitToPage() },
+        Triple("計測ツール", "M") { editor.tool = ToolType.MEASURE },
+        Triple("アートボード中心にガイド", "") { editor.addCenterGuides() },
+        Triple("ガイドを作成…", "") { onGuideCreate() },
         Triple("パネル: レイヤー / オブジェクト", "") { onPanel("layers") },
         Triple("パネル: プロパティ", "") { onPanel("props") },
         Triple("パネル: 操作履歴", "") { onPanel("history") },

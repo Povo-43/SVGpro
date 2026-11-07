@@ -17,7 +17,6 @@ import kotlin.test.assertTrue
 
 /** 今回の拡張（塗り/線入替・最近使った色・ビュー中央移動・円弧/螺旋作図）の回帰テスト */
 class EditorEnhancementsTest {
-
     private fun newEditor(): Editor {
         val e = Editor()
         e.newDocument(200.0, 200.0)
