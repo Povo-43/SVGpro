@@ -86,21 +86,21 @@ class Trace private constructor(
                 }
                 b
             }
-            "text" -> TextMetrics.provider?.invoke(el)
+            "text" -> TextMetrics.provider?.invoke(el)?.let { item.abs.transformBounds(it) }
             "use" -> {
                 // 参照先幾何はbuild時にgeometryへ解決される。ここはフォールバック
                 val x = dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0
                 val y = dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0
                 val w = dev.svgpro.core.util.Numbers.parse(el.attr("width")) ?: 40.0
                 val h = dev.svgpro.core.util.Numbers.parse(el.attr("height")) ?: 40.0
-                Bounds(x, y, w, h)
+                item.abs.transformBounds(Bounds(x, y, w, h))
             }
             "image" -> {
                 val x = dev.svgpro.core.util.Numbers.parse(el.attr("x")) ?: 0.0
                 val y = dev.svgpro.core.util.Numbers.parse(el.attr("y")) ?: 0.0
                 val w = dev.svgpro.core.util.Numbers.parse(el.attr("width")) ?: 0.0
                 val h = dev.svgpro.core.util.Numbers.parse(el.attr("height")) ?: 0.0
-                Bounds(x, y, w, h)
+                item.abs.transformBounds(Bounds(x, y, w, h))
             }
             else -> null
         }
